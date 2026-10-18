@@ -1,0 +1,9 @@
+// Safe public defaults. Config/Local.xcconfig overrides these values locally
+// and is generated from .env.local or a protected GitHub Environment.
+DEVELOPMENT_TEAM =
+PRODUCT_BUNDLE_IDENTIFIER = com.example.SimpleFoods
+PROVISIONING_PROFILE_SPECIFIER =
+SIMPLEFOODS_TIP_PRODUCT_ID =
+SIMPLEFOODS_REPOSITORY =
+
+#include? "Local.xcconfig"

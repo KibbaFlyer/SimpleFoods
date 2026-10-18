@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+build/
+__pycache__/
+*.pyc
+*.xcuserstate
+xcuserdata/
+
+.agent-staging/

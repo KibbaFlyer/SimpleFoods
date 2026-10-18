@@ -1,0 +1,3 @@
+"NSCameraUsageDescription" = "Kameran används endast när du skannar en livsmedelsstreckkod.";
+"NSHealthShareUsageDescription" = "Läs rapporterad aktiv energi för din valda dag.";
+"NSHealthUpdateUsageDescription" = "Spara måltidens energi och makronäringsämnen i appen Hälsa.";

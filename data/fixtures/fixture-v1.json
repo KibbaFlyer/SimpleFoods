@@ -1,0 +1,269 @@
+{
+  "schemaVersion": 1,
+  "fixtureOnly": true,
+  "generationID": "00000000-0000-4000-8000-000000000001",
+  "packID": "synthetic-core",
+  "packVersion": "v1",
+  "calculationVersion": "decimal-v1-proposed",
+  "provenance": {
+    "synthetic-fixture": {
+      "providerID": "mealtracker.synthetic",
+      "sourceRecordID": "fixture",
+      "sourceURL": null,
+      "upstreamVersion": "fixture-v1",
+      "retrievedAt": "2026-10-10T00:00:00Z",
+      "sourceLanguage": "en",
+      "licenceReference": "synthetic-original",
+      "transformationVersion": "fixture-1",
+      "reviewStatus": "syntheticOnly"
+    }
+  },
+  "foods": [
+    {
+      "id": {
+        "scope": "catalogue",
+        "namespace": "mealtracker.synthetic",
+        "recordID": "sausage"
+      },
+      "revision": "r1",
+      "kind": "product",
+      "lifecycle": "active",
+      "names": {
+        "sv": "Testkorv",
+        "en": "Test sausage",
+        "de": "Testwurst"
+      },
+      "salesCountries": [
+        "SE",
+        "DE"
+      ],
+      "manufacturingCountries": [],
+      "ingredientOrigins": [],
+      "barcodes": [
+        "0000000000001"
+      ],
+      "profile": {
+        "profileRevision": "r1",
+        "basis": {
+          "quantity": "100",
+          "unit": "g",
+          "portionID": null
+        },
+        "preparation": "other",
+        "density": null,
+        "nutrients": {
+          "energy.declared": {
+            "status": "known",
+            "value": "200",
+            "unit": "kcal"
+          },
+          "protein": {
+            "status": "known",
+            "value": "10",
+            "unit": "g"
+          },
+          "fat.total": {
+            "status": "known",
+            "value": "15",
+            "unit": "g"
+          },
+          "carbohydrate.euAvailable": {
+            "status": "known",
+            "value": "5",
+            "unit": "g"
+          },
+          "fibre": {
+            "status": "unknown",
+            "reason": "notProvided",
+            "unit": "g"
+          },
+          "salt.equivalent": {
+            "status": "known",
+            "value": "1",
+            "unit": "g"
+          }
+        },
+        "portions": [
+          {
+            "id": "p1",
+            "names": {
+              "sv": "Testskiva",
+              "en": "Test slice",
+              "de": "Testscheibe"
+            },
+            "massGrams": "25",
+            "volumeMillilitres": null,
+            "quality": "measured",
+            "evidenceRef": "synthetic-measured"
+          }
+        ],
+        "provenanceRef": "synthetic-fixture"
+      },
+      "provenanceRef": "synthetic-fixture"
+    },
+    {
+      "id": {
+        "scope": "catalogue",
+        "namespace": "mealtracker.synthetic",
+        "recordID": "potato"
+      },
+      "revision": "r1",
+      "kind": "ingredient",
+      "lifecycle": "active",
+      "names": {
+        "sv": "Testpotatis",
+        "en": "Test potato",
+        "de": "Testkartoffel"
+      },
+      "salesCountries": [],
+      "manufacturingCountries": [],
+      "ingredientOrigins": [],
+      "barcodes": [],
+      "profile": {
+        "profileRevision": "r1",
+        "basis": {
+          "quantity": "100",
+          "unit": "g",
+          "portionID": null
+        },
+        "preparation": "cooked",
+        "density": null,
+        "nutrients": {
+          "energy.declared": {
+            "status": "known",
+            "value": "80",
+            "unit": "kcal"
+          },
+          "protein": {
+            "status": "known",
+            "value": "2",
+            "unit": "g"
+          },
+          "fat.total": {
+            "status": "knownZero",
+            "value": "0",
+            "unit": "g"
+          },
+          "carbohydrate.euAvailable": {
+            "status": "known",
+            "value": "17",
+            "unit": "g"
+          },
+          "fibre": {
+            "status": "known",
+            "value": "2",
+            "unit": "g"
+          }
+        },
+        "portions": [],
+        "provenanceRef": "synthetic-fixture"
+      },
+      "provenanceRef": "synthetic-fixture"
+    },
+    {
+      "id": {
+        "scope": "catalogue",
+        "namespace": "mealtracker.synthetic",
+        "recordID": "oil"
+      },
+      "revision": "r1",
+      "kind": "ingredient",
+      "lifecycle": "active",
+      "names": {
+        "sv": "Testolja",
+        "en": "Test oil",
+        "de": "Testöl"
+      },
+      "salesCountries": [],
+      "manufacturingCountries": [],
+      "ingredientOrigins": [],
+      "barcodes": [],
+      "profile": {
+        "profileRevision": "r1",
+        "basis": {
+          "quantity": "100",
+          "unit": "ml",
+          "portionID": null
+        },
+        "preparation": "other",
+        "density": {
+          "gramsPerMillilitre": "0.9",
+          "evidenceRef": "synthetic-measured",
+          "quality": "measured"
+        },
+        "nutrients": {
+          "energy.declared": {
+            "status": "known",
+            "value": "810",
+            "unit": "kcal"
+          },
+          "fat.total": {
+            "status": "known",
+            "value": "90",
+            "unit": "g"
+          }
+        },
+        "portions": [],
+        "provenanceRef": "synthetic-fixture"
+      },
+      "provenanceRef": "synthetic-fixture"
+    },
+    {
+      "id": {
+        "scope": "catalogue",
+        "namespace": "mealtracker.synthetic",
+        "recordID": "trace"
+      },
+      "revision": "r1",
+      "kind": "ingredient",
+      "lifecycle": "active",
+      "names": {
+        "sv": "Testspår",
+        "en": "Test trace",
+        "de": "Testspur"
+      },
+      "salesCountries": [],
+      "manufacturingCountries": [],
+      "ingredientOrigins": [],
+      "barcodes": [],
+      "profile": {
+        "profileRevision": "r1",
+        "basis": {
+          "quantity": "100",
+          "unit": "g",
+          "portionID": null
+        },
+        "preparation": "other",
+        "density": null,
+        "nutrients": {
+          "energy.declared": {
+            "status": "known",
+            "value": "10",
+            "unit": "kcal"
+          },
+          "protein": {
+            "status": "knownZero",
+            "value": "0",
+            "unit": "g"
+          },
+          "fibre": {
+            "status": "trace",
+            "upperBound": "0.1",
+            "unit": "g"
+          }
+        },
+        "portions": [],
+        "provenanceRef": "synthetic-fixture"
+      },
+      "provenanceRef": "synthetic-fixture"
+    }
+  ],
+  "retainedRevisions": [],
+  "evidence": {
+    "synthetic-measured": {
+      "provenanceRef": "synthetic-fixture",
+      "description": "Invented test equivalence, not a real-world measurement",
+      "kind": "synthetic"
+    }
+  }
+}

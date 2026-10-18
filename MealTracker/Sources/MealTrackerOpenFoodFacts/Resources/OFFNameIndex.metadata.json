@@ -1,0 +1,10 @@
+{
+  "attribution": "Open Food Facts contributors",
+  "contentsLicense": "DbCL-1.0",
+  "databaseLicense": "ODbL-1.0",
+  "generatedAt": "2026-10-17T15:44:06.605205+00:00",
+  "generator": "Tools/build_off_name_index.py",
+  "recordCount": 236126,
+  "sha256": "76e9ec5c9f84d46023244bfd328c06e612552a9626baa11acab9404a4312fe4f",
+  "source": "https://static.openfoodfacts.org/data/openfoodfacts-products.jsonl.gz"
+}

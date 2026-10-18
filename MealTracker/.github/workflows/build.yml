@@ -1,0 +1,39 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    environment: build
+    runs-on: macos-15
+    env:
+      APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+      APP_BUNDLE_IDENTIFIER: ${{ secrets.APP_BUNDLE_IDENTIFIER }}
+      APP_PROVISIONING_PROFILE: ${{ secrets.APP_PROVISIONING_PROFILE }}
+      TIP_PRODUCT_ID: ${{ secrets.TIP_PRODUCT_ID }}
+      PUBLIC_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Generate private build configuration
+        run: Scripts/configure-local.sh /dev/null
+
+      - name: Build without code signing
+        run: >-
+          xcodebuild
+          -project MealTracker.xcodeproj
+          -scheme MealTracker
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build

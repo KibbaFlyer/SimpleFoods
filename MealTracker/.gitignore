@@ -1,0 +1,16 @@
+# Local developer and signing configuration
+.env.local
+Config/Local.xcconfig
+
+# Apple signing assets must never be committed
+*.cer
+*.key
+*.mobileprovision
+*.p12
+
+# Xcode user state and build output
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.build/
+.DS_Store

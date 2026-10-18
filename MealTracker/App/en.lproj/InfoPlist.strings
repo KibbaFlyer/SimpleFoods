@@ -1,0 +1,3 @@
+"NSCameraUsageDescription" = "The camera is used only when you scan a food barcode.";
+"NSHealthShareUsageDescription" = "Read reported active energy for your selected day.";
+"NSHealthUpdateUsageDescription" = "Save meal energy and macronutrients to the Health app.";
