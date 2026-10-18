@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Simple Foods Support
+permalink: /support/
 ---
 
 # Simple Foods Support
@@ -65,4 +66,4 @@ GitHub issues are public. Do not attach screenshots or files containing meal his
 
 ## Privacy
 
-Read the [Simple Foods Privacy Policy](privacy/).
+Read the [Simple Foods Privacy Policy]({{ '/privacy/' | relative_url }}).
