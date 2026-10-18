@@ -63,4 +63,4 @@ This policy may be updated when the app's features or data practices change. Mat
 
 For privacy questions, open an issue in the [Simple Foods GitHub repository](https://github.com/{{ site.github.repository_nwo }}/issues/new). GitHub issues are public, so do not include health information or other sensitive personal data.
 
-[Return to Simple Foods Support](../)
+[Return to Simple Foods Support]({{ '/support/' | relative_url }})
