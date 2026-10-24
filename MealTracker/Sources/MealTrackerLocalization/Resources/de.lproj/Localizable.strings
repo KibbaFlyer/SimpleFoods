@@ -249,3 +249,10 @@
 "addFavorite" = "Zu Favoriten hinzufügen";
 
 "removeFavorite" = "Aus Favoriten entfernen";
+
+"filterTags" = "Filter-Tags";
+"searchFilterTags" = "Filter-Tags suchen";
+"favoritesFilter" = "Favoriten";
+"clearFilters" = "Filter zurücksetzen";
+"marketSweden" = "Schweden";
+"marketGermany" = "Deutschland";

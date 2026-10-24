@@ -249,3 +249,10 @@
 "addFavorite" = "Lägg till som favorit";
 
 "removeFavorite" = "Ta bort som favorit";
+
+"filterTags" = "Filtertaggar";
+"searchFilterTags" = "Sök filtertaggar";
+"favoritesFilter" = "Favoriter";
+"clearFilters" = "Rensa filter";
+"marketSweden" = "Sverige";
+"marketGermany" = "Tyskland";

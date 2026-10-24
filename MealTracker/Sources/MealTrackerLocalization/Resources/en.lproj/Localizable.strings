@@ -249,3 +249,10 @@
 "addFavorite" = "Add to favorites";
 
 "removeFavorite" = "Remove from favorites";
+
+"filterTags" = "Filter tags";
+"searchFilterTags" = "Search filter tags";
+"favoritesFilter" = "Favorites";
+"clearFilters" = "Clear filters";
+"marketSweden" = "Sweden";
+"marketGermany" = "Germany";
