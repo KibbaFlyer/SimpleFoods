@@ -57,7 +57,7 @@ final class StorageTests:XCTestCase {
     }
     func testTimeWindowsAndDSTDays()throws {
         let format=ISO8601DateFormatter()
-        for (hour,expected) in [(4,MealCategory.snack),(5,.breakfast),(10,.breakfast),(11,.lunch),(14,.lunch),(15,.snack),(16,.snack),(17,.dinner),(20,.dinner),(21,.snack)] { let date=try XCTUnwrap(format.date(from:String(format:"2026-01-01T%02d:00:00Z",hour)));XCTAssertEqual(try DiaryTime.category(date,zoneID:"UTC"),expected) }
+        for (hour,expected) in [(0,MealCategory.breakfast),(4,.breakfast),(5,.breakfast),(10,.breakfast),(11,.lunch),(14,.lunch),(15,.lunch),(16,.lunch),(17,.dinner),(20,.dinner),(21,.dinner),(23,.dinner)] { let date=try XCTUnwrap(format.date(from:String(format:"2026-01-01T%02d:00:00Z",hour)));XCTAssertEqual(try DiaryTime.category(date,zoneID:"UTC"),expected) }
         let spring=try XCTUnwrap(format.date(from:"2026-03-29T12:00:00Z"));let fall=try XCTUnwrap(format.date(from:"2026-10-25T12:00:00Z"))
         XCTAssertEqual(try DiaryTime.dayInterval(containing:spring,zoneID:"Europe/Stockholm").duration,23*3600)
         XCTAssertEqual(try DiaryTime.dayInterval(containing:fall,zoneID:"Europe/Stockholm").duration,25*3600)
@@ -73,7 +73,7 @@ final class StorageTests:XCTestCase {
         let url=databaseURL();_ = try DiaryStore(databaseURL:url)
         let db=try DatabaseQueue(path:url.path);try db.write { try $0.execute(sql:"INSERT INTO grdb_migrations VALUES ('future-v99')") }
         XCTAssertThrowsError(try DiaryStore(databaseURL:url))
-        XCTAssertEqual(try db.read { try Int.fetchOne($0,sql:"SELECT count(*) FROM grdb_migrations") },4)
+        XCTAssertEqual(try db.read { try Int.fetchOne($0,sql:"SELECT count(*) FROM grdb_migrations") },5)
     }
     func testConcurrentSameOperationOneRevision()throws {
         let store=try DiaryStore(databaseURL:databaseURL());let draft=try draft();let operation=UUID()

@@ -47,8 +47,25 @@ public final class DiaryStore: @unchecked Sendable {
             CREATE TABLE saved_meal_operations(id TEXT PRIMARY KEY,request BLOB NOT NULL,result BLOB NOT NULL);
             """)
         }
+        migrator.registerMigration("private-v4-food-search") { db in
+            try db.execute(sql: """
+                CREATE TABLE food_search_history(food_id TEXT PRIMARY KEY, payload BLOB NOT NULL, last_used REAL, favorite INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE food_search_queries(query TEXT NOT NULL, language TEXT NOT NULL, food_id TEXT NOT NULL, last_selected REAL NOT NULL, PRIMARY KEY(query, language, food_id));
+                CREATE INDEX food_search_recent ON food_search_history(last_used DESC);
+                """)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                Date(timeIntervalSince1970: Double(try decoder.singleValueContainer().decode(Int64.self)) / 1_000_000)
+            }
+            for data in try Data.fetchAll(db, sql: "SELECT payload FROM events WHERE deleted=0") {
+                let event = try decoder.decode(MealEvent.self, from: data)
+                for component in event.components {
+                    try FoodSearchHistory.recordUse(db, food: component.food, date: event.createdAt)
+                }
+            }
+        }
         let unknown = try writer.read { db -> Bool in
-            guard try db.tableExists("grdb_migrations") else { return false };return try String.fetchAll(db,sql:"SELECT identifier FROM grdb_migrations").contains { !["private-v1","private-v2-personal","private-v3-saved-meals"].contains($0) }
+            guard try db.tableExists("grdb_migrations") else { return false };return try String.fetchAll(db,sql:"SELECT identifier FROM grdb_migrations").contains { !["private-v1","private-v2-personal","private-v3-saved-meals","private-v4-food-search"].contains($0) }
         };guard !unknown else { throw DiaryError.invalidInput }
         try migrator.migrate(writer)
         diaryIdentity=try writer.read { db in guard let value=try String.fetchOne(db,sql:"SELECT value FROM metadata WHERE key='diaryIdentity'"),let id=UUID(uuidString:value) else { throw DiaryError.invalidInput };return id }
@@ -135,6 +152,9 @@ public final class DiaryStore: @unchecked Sendable {
             let zone=try DiaryTime.calendar(zoneID:draft.zoneID).timeZone
             let event=MealEvent(schemaVersion:1,id:draft.id,diaryIdentity:diaryIdentity,revision:revision,eatenAt:draft.eatenAt,zoneID:draft.zoneID,utcOffsetSeconds:zone.secondsFromGMT(for:draft.eatenAt),localDate:try DiaryTime.localDate(draft.eatenAt,zoneID:draft.zoneID),category:try draft.category ?? DiaryTime.category(draft.eatenAt,zoneID:draft.zoneID),categoryMode:draft.category == nil ? "automatic":"manual",components:draft.components,totals:totals,calculationVersion:NutritionCalculator.calculationVersion,createdAt:old?.createdAt ?? now,updatedAt:now,deletedAt:nil)
             try commit(db,event:event,operationID:operationID,request:request,reason:"save")
+            for component in event.components where old?.components.contains(where: { $0.id == component.id && $0.food.id == component.food.id }) != true {
+                try FoodSearchHistory.recordUse(db, food: component.food, date: now)
+            }
             try db.execute(sql:"DELETE FROM drafts WHERE id=?",arguments:[draft.id.uuidString])
             if injectFailureBeforeCommit { throw DiaryError.injectedFailure };return try decodeEvent(encoder.encode(event))
         }

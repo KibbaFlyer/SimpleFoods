@@ -179,6 +179,7 @@
 "macroComposition" = "Makronährstoffverteilung";
 "noMacroData" = "Füge eine Mahlzeit hinzu, um die heutige Makronährstoffverteilung zu sehen.";
 "energyProgress" = "Energie im Vergleich zum Ziel";
+"untilGoal" = "Bis zum Ziel:";
 "energyGoal" = "Energieziel";
 "dailyEnergyGoal" = "Tagesziel (kcal)";
 "energyGoalHelp" = "Wird für den Energievergleich auf der Heute-Seite verwendet.";
@@ -214,6 +215,9 @@
 "adjustedGoal" = "Ziel nach Bewegung";
 "mealTotalEnergy" = "Mahlzeit gesamt";
 "savedMeals" = "Rezepte";
+"sortRecipes" = "Rezepte sortieren";
+"recentlyModified" = "Zuletzt geändert (neueste zuerst)";
+"leastRecentlyModified" = "Zuletzt geändert (älteste zuerst)";
 "searchRecipes" = "Rezepte suchen";
 "noSavedMeals" = "Keine gespeicherten Rezepte";
 "addSavedMeal" = "Rezept hinzufügen";
@@ -237,3 +241,11 @@
 "addCustomNutrition" = "Eigene Nährwerte hinzufügen";
 "customNutritionExplanation" = "Gib die Nährwerte für diesen Eintrag ein. Er wird nur zur ausgewählten Mahlzeit hinzugefügt.";
 "recipeImportExperimental" = "Der Rezeptimport ist eine experimentelle Funktion und erkennt möglicherweise nicht jede Zutat korrekt. Prüfe das Ergebnis vor dem Speichern.";
+
+"recentlyUsed" = "Kürzlich verwendet";
+
+"favoriteFood" = "Favorit";
+
+"addFavorite" = "Zu Favoriten hinzufügen";
+
+"removeFavorite" = "Aus Favoriten entfernen";
