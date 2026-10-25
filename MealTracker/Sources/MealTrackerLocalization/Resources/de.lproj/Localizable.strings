@@ -256,3 +256,11 @@
 "clearFilters" = "Filter zurücksetzen";
 "marketSweden" = "Schweden";
 "marketGermany" = "Deutschland";
+
+"searchCorrection" = "Ergebnisse für";
+
+"energyByMealType" = "Gesamte kcal nach Mahlzeitentyp";
+"mealType" = "Mahlzeitentyp";
+
+"dailyMacronutrients" = "Makronährstoffe pro Tag";
+"dayOfMonth" = "Tag";

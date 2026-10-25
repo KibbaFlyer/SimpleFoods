@@ -303,6 +303,7 @@ struct MealTrackerApp: App {
     let off: OFFLibrary
     let personal: PersonalLibrary
     let livsmedelsverket: LivsmedelsverketLibrary
+    let foodSearch: FoodSearchService
     init() throws {
         catalogue = try CatalogueRepository.bundledDevelopment()
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -318,6 +319,11 @@ struct MealTrackerApp: App {
         personal = PersonalLibrary(store: diary)
         off = try OFFLibrary(databaseURL: offDirectory.appendingPathComponent("openfoodfacts.sqlite"), userAgent: userAgent)
         livsmedelsverket = try LivsmedelsverketLibrary(databaseURL: offDirectory.appendingPathComponent("livsmedelsverket.sqlite"), userAgent: userAgent)
+        foodSearch = FoodSearchService(catalogue: catalogue, personal: personal, diary: diary, off: off, livsmedelsverket: livsmedelsverket)
+        Task(priority: .utility) { [off] in
+            // A canceled keystroke must not restart the one-time catalog build.
+            try? await off.prepareSearchIndex()
+        }
     }
     func connectHealth(day: Date) async {
         await establishHealthConnection(day: day, rememberConnection: true, reportError: true)
@@ -459,6 +465,7 @@ struct MealTrackerApp: App {
         let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = .current; formatter.dateFormat = "yyyy-MM-dd"; return formatter.string(from: date)
     }
     func loadOFF() async {
+        await foodSearch.invalidateSources()
         do {
             personalFoods = try personal.personalFoods()
             // Raw OFF records that could not be mapped to a validated food are
@@ -512,58 +519,6 @@ struct MealTrackerApp: App {
         } catch { self.error = appError(error) }
     }
 
-    func foodRecency(_ food: CatalogueFood?) -> Date {
-        guard let food, let preference = foodPreferences[food.id] else { return .distantPast }
-        return preference.lastSelectedForQuery ?? preference.lastUsed ?? .distantPast
-    }
-
-    func foodPriority(_ food: CatalogueFood?) -> Int {
-        guard let food else { return 0 }
-        return foodPreferences[food.id]?.priority() ?? 0
-    }
-
-    func allFoods(query: String, language: AppLanguage, market: String, favoritesOnly: Bool = false) throws -> [CatalogueFood] {
-        foodSearchQuery = query
-        foodSearchLanguage = language.rawValue
-        foodPreferences = try FoodSearchHistory(store: diary).preferences(query: query, language: language.rawValue)
-        let local = try catalogue.search(query: "", language: language.rawValue, market: market.isEmpty ? nil : market)
-        let slv = livsmedelsverketFoods.filter { _ in market.isEmpty || market == "SE" }
-        let off = offProducts.compactMap(\.food).filter { market.isEmpty || $0.salesCountries.contains(market) }
-        let personal = try personal.personalFoods().map(\.food)
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        var candidates = local + slv + off + personal
-        let availableIDs = Set(candidates.map(\.id))
-        // Keep previously used catalogue foods searchable even after a cache eviction.
-        candidates += foodPreferences.values.compactMap { preference in
-            let food = preference.food
-            guard !availableIDs.contains(food.id), case .catalogue = food.id,
-                  market.isEmpty || food.salesCountries.contains(market) else { return nil }
-            return food
-        }
-        let ranked: [(food: CatalogueFood, name: String, rank: Int)] = candidates.compactMap { food in
-            guard !favoritesOnly || foodPreferences[food.id]?.isFavorite == true else { return nil }
-            let displayName = name(food, language: language.rawValue)
-            guard let rank = FoodSearchRanking.rank(
-                displayName: displayName,
-                searchableNames: [displayName],
-                query: normalizedQuery,
-                locale: language.locale
-            ) else { return nil }
-            return (food: food, name: displayName, rank: rank)
-        }
-        return ranked.sorted { left, right in
-            let leftPriority = foodPriority(left.food)
-            let rightPriority = foodPriority(right.food)
-            if leftPriority != rightPriority { return leftPriority > rightPriority }
-            if leftPriority > 0 {
-                let leftDate = foodPreferences[left.food.id]?.lastSelectedForQuery ?? foodPreferences[left.food.id]?.lastUsed ?? .distantPast
-                let rightDate = foodPreferences[right.food.id]?.lastSelectedForQuery ?? foodPreferences[right.food.id]?.lastUsed ?? .distantPast
-                if leftDate != rightDate { return leftDate > rightDate }
-            }
-            if left.rank != right.rank { return left.rank < right.rank }
-            return left.name.compare(right.name, options: [.caseInsensitive, .diacriticInsensitive, .numeric], range: nil, locale: language.locale) == .orderedAscending
-        }.map(\.food)
-    }
     func sync() async {
         guard !offSyncBusy else { return }
         offSyncBusy = true
@@ -573,9 +528,6 @@ struct MealTrackerApp: App {
         syncReport = await off.sync()
         await loadOFF()
     }
-    func offNames(query: String, language: String, market: String?, limit: Int) async -> [OFFNameEntry] {
-        (try? await off.names(query: query, language: language, market: market, limit: limit)) ?? []
-    }
     fileprivate func searchFoods(
         query: String,
         language: AppLanguage,
@@ -583,29 +535,13 @@ struct MealTrackerApp: App {
         origin: FoodOriginFilter,
         favoritesOnly: Bool = false,
         limit: Int
-    ) async throws -> FoodTextSearchResult {
-        let searchQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !searchQuery.isEmpty || !market.isEmpty || origin != .all || favoritesOnly else {
-            return FoodTextSearchResult(foods: [], openFoodFactsNames: [])
-        }
-
-        let foods = try allFoods(query: searchQuery, language: language, market: market, favoritesOnly: favoritesOnly)
-            .filter { matchesSource($0, origin: origin) }
-        guard !favoritesOnly, !searchQuery.isEmpty, origin == .all || origin == .openFoodFacts else {
-            return FoodTextSearchResult(foods: Array(foods.prefix(limit)), openFoodFactsNames: [])
-        }
-
-        let entries = await offNames(
-            query: searchQuery,
-            language: language.rawValue,
-            market: market.isEmpty ? nil : market,
-            limit: limit
-        )
-        let cachedBarcodes = Set(offProducts.map(\.barcode) + foods.flatMap(\.barcodes))
-        return FoodTextSearchResult(
-            foods: Array(foods.prefix(limit)),
-            openFoodFactsNames: entries.filter { !cachedBarcodes.contains($0.barcode) }
-        )
+    ) async throws -> FoodSearchPage {
+        let result = try await foodSearch.search(query: query, language: language.rawValue, market: market.isEmpty ? nil : market, source: origin, favoritesOnly: favoritesOnly, limit: limit)
+        try Task.checkCancellation()
+        foodSearchQuery = query
+        foodSearchLanguage = language.rawValue
+        foodPreferences = result.preferences
+        return result
     }
     func syncLivsmedelsverket() async {
         guard !livsmedelsverketSyncBusy else { return }
@@ -648,14 +584,9 @@ struct MealTrackerRoot: View {
     }
 }
 
-private enum FoodOriginFilter: String, CaseIterable, Identifiable {
-    case all
-    case openFoodFacts
-    case personal
-    case livsmedelsverket
+private typealias FoodOriginFilter = FoodSearchSource
 
-    var id: String { rawValue }
-
+private extension FoodSearchSource {
     var localizationKey: String {
         switch self {
         case .all:
@@ -668,11 +599,6 @@ private enum FoodOriginFilter: String, CaseIterable, Identifiable {
             "livsmedelsverket"
         }
     }
-}
-
-private struct FoodTextSearchResult {
-    let foods: [CatalogueFood]
-    let openFoodFactsNames: [OFFNameEntry]
 }
 
 private func matchesSource(_ food: CatalogueFood, origin: FoodOriginFilter) -> Bool {
@@ -1960,8 +1886,21 @@ private struct RecipeFoodPicker: View {
     @State private var market = ""
     @State private var origin = FoodOriginFilter.all
     @State private var favoritesOnly = false
-    @State private var matches: [CatalogueFood] = []
-    @State private var offNameMatches: [OFFNameEntry] = []
+    @State private var searchResults: [FoodSearchHit] = []
+    @State private var correctedQuery: String?
+    private var matches: [CatalogueFood] {
+        get { searchResults.compactMap(\.food) }
+        nonmutating set { searchResults = newValue.map(FoodSearchHit.init(food:)) }
+    }
+    private var offNameMatches: [OFFNameEntry] {
+        get { searchResults.compactMap(\.nameEntry) }
+        nonmutating set {
+            let kept = Set(newValue.map(\.barcode))
+            searchResults.removeAll { $0.nameEntry.map { !kept.contains($0.barcode) } ?? false }
+            let existing = Set(searchResults.compactMap { $0.nameEntry?.barcode })
+            searchResults += newValue.filter { !existing.contains($0.barcode) }.map(FoodSearchHit.init(nameEntry:))
+        }
+    }
     @State private var product: OFFProduct?
     @State private var amountSelection: AmountSelection?
     @State private var amount = "100"
@@ -1991,6 +1930,10 @@ private struct RecipeFoodPicker: View {
                 }
 
                 Section {
+                    if let correctedQuery {
+                        Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     FoodFilterTags(market: $market, origin: $origin, favoritesOnly: $favoritesOnly, copy: copy)
 
                     if isSearching {
@@ -2000,22 +1943,23 @@ private struct RecipeFoodPicker: View {
                     }
                 }
 
-                ForEach(matches, id: \.id) { food in
-                    Button { select(food) } label: {
-                        VStack(alignment: .leading) {
-                            FoodPersonalizedName(food: food, model: model, copy: copy)
-                            Text(sourceLabel(food)).font(.caption).foregroundStyle(.secondary)
-                            if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
-                                ApproximateNutritionBadge(copy: copy)
+                ForEach(searchResults.prefix(20)) { result in
+                    if let food = result.food {
+                        Button { select(food) } label: {
+                            VStack(alignment: .leading) {
+                                FoodPersonalizedName(food: food, model: model, copy: copy)
+                                Text(sourceLabel(food)).font(.caption).foregroundStyle(.secondary)
+                                if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
+                                    ApproximateNutritionBadge(copy: copy)
+                                }
                             }
                         }
-                    }
-                }
-                ForEach(offNameMatches) { entry in
-                    Button { Task { await selectOFF(entry) } } label: {
-                        VStack(alignment: .leading) {
-                            OFFNameEntryLabel(entry: entry, copy: copy)
-                            UnsyncedBadge(copy: copy)
+                    } else if let entry = result.nameEntry {
+                        Button { Task { await selectOFF(entry) } } label: {
+                            VStack(alignment: .leading) {
+                                OFFNameEntryLabel(entry: entry, copy: copy)
+                                UnsyncedBadge(copy: copy)
+                            }
                         }
                     }
                 }
@@ -2072,6 +2016,7 @@ private struct RecipeFoodPicker: View {
         guard !searchQuery.isEmpty || !selectedMarket.isEmpty || selectedOrigin != .all || selectedFavoritesOnly else {
             matches = []
             offNameMatches = []
+            correctedQuery = nil
             isSearching = false
             return
         }
@@ -2093,11 +2038,13 @@ private struct RecipeFoodPicker: View {
                 favoritesOnly: selectedFavoritesOnly,
                 limit: 20
             )
-            guard activeSearchID == searchID else { return }
-            matches = result.foods
-            offNameMatches = result.openFoodFactsNames
+            guard activeSearchID == searchID, !Task.isCancelled else { return }
+            searchResults = result.hits
+            correctedQuery = result.correctedQuery
+        } catch is CancellationError {
+            return
         } catch {
-            guard activeSearchID == searchID else { return }
+            guard activeSearchID == searchID, !Task.isCancelled else { return }
             self.error = appError(error, copy: copy)
         }
     }
@@ -2875,7 +2822,6 @@ private struct FoodLibraryTab: View {
         let product: OFFProduct?
         let nameEntry: OFFNameEntry?
         let origin: FoodOriginFilter?
-        let searchRank: Int
         var id: String { nameEntry?.barcode ?? String(describing: food!.id) }
     }
 
@@ -2888,6 +2834,7 @@ private struct FoodLibraryTab: View {
     @State private var creatingFood = false
     @State private var resultLimit = 20
     @State private var results: [Result] = []
+    @State private var correctedQuery: String?
     @State private var loadingOperationCount = 0
     @State private var hasLoadedInitialContent = false
 
@@ -2897,6 +2844,10 @@ private struct FoodLibraryTab: View {
     var body: some View {
         NavigationStack {
             List {
+                if let correctedQuery {
+                    Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 FoodFilterTags(market: $market, origin: $foodOrigin, favoritesOnly: $favoritesOnly, copy: copy)
                 if isLoading {
                     ProgressView()
@@ -2938,7 +2889,6 @@ private struct FoodLibraryTab: View {
                 if results.count > resultLimit {
                     Button(copy.text("showMore")) {
                         resultLimit += 20
-                        Task { await search(resetLimit: false) }
                     }
                 }
                 FoodLibraryCounts(model: model, copy: copy)
@@ -2951,7 +2901,6 @@ private struct FoodLibraryTab: View {
             }
             .task {
                 await model.loadOFF()
-                await search(showLoading: false)
                 hasLoadedInitialContent = true
             }
             .searchable(
@@ -2959,89 +2908,42 @@ private struct FoodLibraryTab: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: copy.text("search")
             )
-            .task(id: query) {
+            .task(id: "\(hasLoadedInitialContent)|\(query)|\(market)|\(foodOrigin.rawValue)|\(favoritesOnly)|\(language.rawValue)|\(model.favoriteRevision)|\(resultLimit)") {
                 guard hasLoadedInitialContent else { return }
                 try? await Task.sleep(for: .milliseconds(180))
                 guard !Task.isCancelled else { return }
                 await search()
             }
-            .onChange(of: market) { _, _ in Task { await search() } }
-            .onChange(of: favoritesOnly) { _, _ in Task { await search() } }
-            .onChange(of: model.favoriteRevision) { _, _ in Task { await search() } }
-            .onChange(of: foodOrigin) { _, _ in Task { await search() } }
-            .onChange(of: language) { _, _ in Task { await search() } }
+            .onChange(of: query) { _, _ in resultLimit = 20 }
+            .onChange(of: market) { _, _ in resultLimit = 20 }
+            .onChange(of: favoritesOnly) { _, _ in resultLimit = 20 }
+            .onChange(of: model.favoriteRevision) { _, _ in resultLimit = 20 }
+            .onChange(of: foodOrigin) { _, _ in resultLimit = 20 }
+            .onChange(of: language) { _, _ in resultLimit = 20 }
             .navigationTitle(copy.text("foods"))
         }
     }
 
-    private func search(resetLimit: Bool = true, showLoading: Bool = true) async {
+    private func search(showLoading: Bool = true) async {
         if showLoading { loadingOperationCount += 1 }
         defer { if showLoading { loadingOperationCount -= 1 } }
-        if resetLimit { resultLimit = 20 }
-        let searchQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let selectedMarket = market
-        let selectedFavoritesOnly = favoritesOnly
-        let selectedOrigin = foodOrigin
-        guard !searchQuery.isEmpty || !selectedMarket.isEmpty || selectedOrigin != .all || selectedFavoritesOnly else {
-            results = []
-            return
-        }
         do {
-            let offByID = Dictionary(uniqueKeysWithValues: model.offProducts.compactMap { product in
-                product.food.map { ($0.id, product) }
-            })
-            var next = try model.allFoods(query: searchQuery, language: language, market: market, favoritesOnly: favoritesOnly).compactMap { food -> Result? in
+            let result = try await model.searchFoods(query: query, language: language, market: market, origin: foodOrigin, favoritesOnly: favoritesOnly, limit: resultLimit + 1)
+            try Task.checkCancellation()
+            let offByID = Dictionary(uniqueKeysWithValues: model.offProducts.compactMap { product in product.food.map { ($0.id, product) } })
+            results = result.hits.map { hit in
                 let origin: FoodOriginFilter?
-                switch food.id {
+                switch hit.id {
                 case .personal: origin = .personal
                 case let .catalogue(namespace, _):
                     origin = namespace == "off" ? .openFoodFacts : namespace == "livsmedelsverket" ? .livsmedelsverket : nil
                 }
-                guard foodOrigin == .all || origin == foodOrigin else { return nil }
-                let displayName = model.name(food, language: language.rawValue)
-                let rank = FoodSearchRanking.rank(
-                    displayName: displayName,
-                    searchableNames: food.names.values,
-                    query: searchQuery,
-                    locale: language.locale
-                ) ?? Int.max
-                return Result(food: food, product: offByID[food.id], nameEntry: nil, origin: origin, searchRank: rank)
+                return Result(food: hit.food, product: offByID[hit.id], nameEntry: hit.nameEntry, origin: origin)
             }
-            if !selectedFavoritesOnly && (foodOrigin == .all || foodOrigin == .openFoodFacts) {
-                let entries = await model.offNames(query: searchQuery, language: language.rawValue, market: market.isEmpty ? nil : market, limit: resultLimit + 1)
-                let cachedBarcodes = Set(model.offProducts.map(\.barcode) + next.compactMap(\.food).flatMap(\.barcodes))
-                next.append(contentsOf: entries.filter { !cachedBarcodes.contains($0.barcode) }.map { entry in
-                    let displayName = entry.displayName(language: language.rawValue)
-                    let rank = FoodSearchRanking.rank(
-                        displayName: displayName,
-                        searchableNames: entry.searchableNames,
-                        query: searchQuery,
-                        locale: language.locale
-                    ) ?? Int.max
-                    return Result(food: nil, product: nil, nameEntry: entry, origin: .openFoodFacts, searchRank: rank)
-                })
-            }
-            guard query.trimmingCharacters(in: .whitespacesAndNewlines) == searchQuery else { return }
-            guard market == selectedMarket, foodOrigin == selectedOrigin, favoritesOnly == selectedFavoritesOnly else { return }
-            next.sort { left, right in
-                let leftPriority = model.foodPriority(left.food)
-                let rightPriority = model.foodPriority(right.food)
-                if leftPriority != rightPriority { return leftPriority > rightPriority }
-                if leftPriority > 0, model.foodRecency(left.food) != model.foodRecency(right.food) {
-                    return model.foodRecency(left.food) > model.foodRecency(right.food)
-                }
-                if left.searchRank != right.searchRank { return left.searchRank < right.searchRank }
-                return resultName(left).compare(
-                    resultName(right),
-                    options: [.caseInsensitive, .diacriticInsensitive, .numeric],
-                    range: nil,
-                    locale: language.locale
-                ) == .orderedAscending
-            }
-            results = Array(next.prefix(resultLimit + 1))
-        } catch {
-            model.error = appError(error)
-        }
+            correctedQuery = result.correctedQuery
+        } catch is CancellationError {
+            return
+        } catch { model.error = appError(error) }
     }
 
     private var hasActiveSearch: Bool {
@@ -4051,8 +3953,21 @@ struct MealComposer: View {
     @State private var market = ""
     @State private var foodOrigin = FoodOriginFilter.all
     @State private var favoritesOnly = false
-    @State private var matches: [CatalogueFood] = []
-    @State private var offNameMatches: [OFFNameEntry] = []
+    @State private var searchResults: [FoodSearchHit] = []
+    @State private var correctedQuery: String?
+    private var matches: [CatalogueFood] {
+        get { searchResults.compactMap(\.food) }
+        nonmutating set { searchResults = newValue.map(FoodSearchHit.init(food:)) }
+    }
+    private var offNameMatches: [OFFNameEntry] {
+        get { searchResults.compactMap(\.nameEntry) }
+        nonmutating set {
+            let kept = Set(newValue.map(\.barcode))
+            searchResults.removeAll { $0.nameEntry.map { !kept.contains($0.barcode) } ?? false }
+            let existing = Set(searchResults.compactMap { $0.nameEntry?.barcode })
+            searchResults += newValue.filter { !existing.contains($0.barcode) }.map(FoodSearchHit.init(nameEntry:))
+        }
+    }
     @State private var isSearching = false
     @State private var searchID = UUID()
     @State private var resultLimit = 20
@@ -4134,40 +4049,45 @@ struct MealComposer: View {
                     }
                 }
                 Section(copy.text("tags")) {
+                    if let correctedQuery {
+                        Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     FoodFilterTags(market: $market, origin: $foodOrigin, favoritesOnly: $favoritesOnly, copy: copy)
                     if isSearching {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                             .accessibilityLabel(copy.text("search"))
                     }
-                    ForEach(matches.prefix(resultLimit), id: \.id) { food in
-                        Button { select(food) } label: {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading) {
-                                    FoodPersonalizedName(food: food, model: model, copy: copy)
-                                    Text(sourceLabel(food)).font(.caption)
-                                    Text(food.salesCountries.map { $0 == "SE" ? "🇸🇪 SE" : $0 == "DE" ? "🇩🇪 DE" : $0 }.joined(separator: " · ")).font(.caption)
-                                    if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
-                                        ApproximateNutritionBadge(copy: copy)
+                    ForEach(searchResults.prefix(resultLimit)) { result in
+                        if let food = result.food {
+                            Button { select(food) } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading) {
+                                        FoodPersonalizedName(food: food, model: model, copy: copy)
+                                        Text(sourceLabel(food)).font(.caption)
+                                        Text(food.salesCountries.map { $0 == "SE" ? "🇸🇪 SE" : $0 == "DE" ? "🇩🇪 DE" : $0 }.joined(separator: " · ")).font(.caption)
+                                        if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
+                                            ApproximateNutritionBadge(copy: copy)
+                                        }
+                                    }
+                                    Spacer()
+                                    if selected?.id == food.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.teal)
+                                            .accessibilityLabel(copy.text("selected"))
                                     }
                                 }
-                                Spacer()
-                                if selected?.id == food.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.teal)
-                                        .accessibilityLabel(copy.text("selected"))
-                                }
                             }
-                        }
-                        .accessibilityAddTraits(selected?.id == food.id ? .isSelected : [])
-                    }
-                    ForEach(offNameMatches.prefix(max(0, resultLimit - min(matches.count, resultLimit)))) { entry in
-                        Button { Task { await selectOFF(entry) } } label: {
-                            VStack(alignment: .leading) {
-                                OFFNameEntryLabel(entry: entry, copy: copy)
-                                HStack {
-                                    FoodOriginBadge(origin: .openFoodFacts, copy: copy)
-                                    UnsyncedBadge(copy: copy)
+                            .accessibilityAddTraits(selected?.id == food.id ? .isSelected : [])
+                        } else if let entry = result.nameEntry {
+                            Button { Task { await selectOFF(entry) } } label: {
+                                VStack(alignment: .leading) {
+                                    OFFNameEntryLabel(entry: entry, copy: copy)
+                                    HStack {
+                                        FoodOriginBadge(origin: .openFoodFacts, copy: copy)
+                                        UnsyncedBadge(copy: copy)
+                                    }
                                 }
                             }
                         }
@@ -4281,6 +4201,7 @@ struct MealComposer: View {
         guard !searchQuery.isEmpty || !selectedMarket.isEmpty || selectedOrigin != .all || selectedFavoritesOnly else {
             matches = []
             offNameMatches = []
+            correctedQuery = nil
             isSearching = false
             return
         }
@@ -4306,8 +4227,8 @@ struct MealComposer: View {
                 limit: resultLimit + 1
             )
             guard searchID == currentSearchID, !showingBarcodeResults else { return }
-            matches = result.foods
-            offNameMatches = result.openFoodFactsNames
+            searchResults = result.hits
+            correctedQuery = result.correctedQuery
         } catch is CancellationError {
             return
         } catch {
@@ -4729,9 +4650,24 @@ private struct QuickFoodAdd: View {
     @State private var market = ""
     @State private var foodOrigin = FoodOriginFilter.all
     @State private var favoritesOnly = false
-    @State private var matches: [CatalogueFood] = []
-    @State private var offNameMatches: [OFFNameEntry] = []
+    @State private var searchResults: [FoodSearchHit] = []
+    @State private var correctedQuery: String?
+    private var matches: [CatalogueFood] {
+        get { searchResults.compactMap(\.food) }
+        nonmutating set { searchResults = newValue.map(FoodSearchHit.init(food:)) }
+    }
+    private var offNameMatches: [OFFNameEntry] {
+        get { searchResults.compactMap(\.nameEntry) }
+        nonmutating set {
+            let kept = Set(newValue.map(\.barcode))
+            searchResults.removeAll { $0.nameEntry.map { !kept.contains($0.barcode) } ?? false }
+            let existing = Set(searchResults.compactMap { $0.nameEntry?.barcode })
+            searchResults += newValue.filter { !existing.contains($0.barcode) }.map(FoodSearchHit.init(nameEntry:))
+        }
+    }
     @State private var resultLimit = 20
+    @State private var isSearching = false
+    @State private var activeSearchID = UUID()
     @State private var product: OFFProduct?
     @State private var amount = "100"
     @State private var unit = QuantityUnit.grams
@@ -4753,42 +4689,48 @@ private struct QuickFoodAdd: View {
 
                 Section(copy.text("tags")) {
                     TextField(copy.text("search"), text: $query)
-                        .onChange(of: query) { _, _ in search() }
+                        .onChange(of: query) { _, _ in resultLimit = 20 }
+                    if let correctedQuery {
+                        Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     FoodFilterTags(market: $market, origin: $foodOrigin, favoritesOnly: $favoritesOnly, copy: copy)
-                        .onChange(of: foodOrigin) { _, _ in search() }
-                        .onChange(of: market) { _, _ in search() }
-                        .onChange(of: favoritesOnly) { _, _ in search() }
-                        .onChange(of: model.favoriteRevision) { _, _ in search() }
-                    ForEach(matches.prefix(resultLimit), id: \.id) { food in
-                        Button {
-                            product = model.offProducts.first(where: { $0.food?.id == food.id })
-                            updateUnit(for: food)
-                            model.recordFoodSelection(food, query: query, language: copy.language)
-                            amountSelection = AmountSelection(food: food)
-                        } label: {
-                            VStack(alignment: .leading) {
-                                FoodPersonalizedName(food: food, model: model, copy: copy)
-                                Text(sourceLabel(food))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
-                                    ApproximateNutritionBadge(copy: copy)
+                        .onChange(of: foodOrigin) { _, _ in resultLimit = 20 }
+                        .onChange(of: market) { _, _ in resultLimit = 20 }
+                        .onChange(of: favoritesOnly) { _, _ in resultLimit = 20 }
+                        .onChange(of: model.favoriteRevision) { _, _ in resultLimit = 20 }
+                    ForEach(searchResults.prefix(resultLimit)) { result in
+                        if let food = result.food {
+                            Button {
+                                product = model.offProducts.first(where: { $0.food?.id == food.id })
+                                updateUnit(for: food)
+                                model.recordFoodSelection(food, query: query, language: copy.language)
+                                amountSelection = AmountSelection(food: food)
+                            } label: {
+                                VStack(alignment: .leading) {
+                                    FoodPersonalizedName(food: food, model: model, copy: copy)
+                                    Text(sourceLabel(food))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
+                                        ApproximateNutritionBadge(copy: copy)
+                                    }
+                                }
+                            }
+                        } else if let entry = result.nameEntry {
+                            Button { Task { await selectOFF(entry) } } label: {
+                                VStack(alignment: .leading) {
+                                    OFFNameEntryLabel(entry: entry, copy: copy)
+                                    HStack {
+                                        FoodOriginBadge(origin: .openFoodFacts, copy: copy)
+                                        UnsyncedBadge(copy: copy)
+                                    }
                                 }
                             }
                         }
                     }
-                    ForEach(offNameMatches.prefix(max(0, resultLimit - min(matches.count, resultLimit)))) { entry in
-                        Button { Task { await selectOFF(entry) } } label: {
-                            VStack(alignment: .leading) {
-                                OFFNameEntryLabel(entry: entry, copy: copy)
-                                HStack {
-                                    FoodOriginBadge(origin: .openFoodFacts, copy: copy)
-                                    UnsyncedBadge(copy: copy)
-                                }
-                            }
-                        }
-                    }
-                    if favoritesOnly && matches.isEmpty {
+                    if isSearching { ProgressView() }
+                    if !isSearching && searchResults.isEmpty && (favoritesOnly || !query.isEmpty || !market.isEmpty || foodOrigin != .all) {
                         ContentUnavailableView(copy.text("noSearchResults"), systemImage: "star")
                     }
                     if matches.count + offNameMatches.count > resultLimit {
@@ -4814,11 +4756,9 @@ private struct QuickFoodAdd: View {
             }
             .onAppear {
                 category = (try? DiaryTime.category(selectedDate, zoneID: TimeZone.current.identifier)) ?? .snack
-                search()
             }
-            .task {
-                await model.loadOFF()
-                search()
+            .task(id: "\(query)|\(market)|\(foodOrigin.rawValue)|\(favoritesOnly)|\(model.favoriteRevision)|\(resultLimit)") {
+                await search()
             }
             .sheet(item: $amountSelection) { selection in
                 MealFoodAmountSheet(
@@ -4840,28 +4780,21 @@ private struct QuickFoodAdd: View {
         }
     }
 
-    private func search() {
+    private func search() async {
+        let searchID = UUID()
+        activeSearchID = searchID
+        isSearching = true
+        defer { if activeSearchID == searchID { isSearching = false } }
         do {
-            let searchQuery = query
-            let selectedMarket = market
-            let selectedOrigin = foodOrigin
-            let selectedFavoritesOnly = favoritesOnly
-            matches = try model.allFoods(query: searchQuery, language: copy.language, market: selectedMarket, favoritesOnly: selectedFavoritesOnly).filter { matchesSource($0, origin: selectedOrigin) }
-            offNameMatches = []
-            resultLimit = 20
-            Task {
-                if !selectedFavoritesOnly && (selectedOrigin == .all || selectedOrigin == .openFoodFacts) {
-                    let entries = await model.offNames(query: searchQuery, language: copy.language.rawValue, market: selectedMarket.isEmpty ? nil : selectedMarket, limit: 21)
-                    guard query == searchQuery, market == selectedMarket, foodOrigin == selectedOrigin, favoritesOnly == selectedFavoritesOnly else { return }
-                    let cached = Set(model.offProducts.map(\.barcode) + matches.flatMap(\.barcodes))
-                    offNameMatches = entries.filter { !cached.contains($0.barcode) }
-                } else {
-                    offNameMatches = []
-                }
-            }
-        } catch {
-            self.error = appError(error)
-        }
+            try await Task.sleep(for: .milliseconds(150))
+            let result = try await model.searchFoods(query: query, language: copy.language, market: market, origin: foodOrigin, favoritesOnly: favoritesOnly, limit: resultLimit + 1)
+            try Task.checkCancellation()
+            guard activeSearchID == searchID else { return }
+            searchResults = result.hits
+            correctedQuery = result.correctedQuery
+        } catch is CancellationError {
+            return
+        } catch { self.error = appError(error) }
     }
 
     private func selectOFF(_ entry: OFFNameEntry) async {
@@ -5311,7 +5244,7 @@ private struct GoalCalendarView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    GoalFoodGraphs(events: monthEvents, copy: copy)
+                    GoalFoodGraphs(events: monthEvents, month: displayedMonth, copy: copy)
                 }
                 if let error { Text(error).foregroundStyle(.red) }
             }
@@ -5467,6 +5400,7 @@ private struct GoalCalendarView: View {
 
 private struct GoalFoodGraphs: View {
     let events: [MealEvent]
+    let month: Date
     let copy: AppCopy
 
     private let chartLimit = 7
@@ -5474,6 +5408,12 @@ private struct GoalFoodGraphs: View {
     var body: some View {
         let statistics = makeStatistics()
         VStack(alignment: .leading, spacing: 24) {
+            GoalFoodBarChart(
+                title: copy.text("energyByMealType"),
+                items: mealEnergyStatistics,
+                copy: copy,
+                categoryLabel: copy.text("mealType")
+            )
             if statistics.amount.isEmpty {
                 ContentUnavailableView(copy.text("noGoalGraphData"), systemImage: "chart.bar")
             } else {
@@ -5511,6 +5451,22 @@ private struct GoalFoodGraphs: View {
                     )
                 }
             }
+            GoalDailyMacroChart(events: events, month: month, copy: copy)
+        }
+    }
+
+    private var mealEnergyStatistics: [GoalFoodStatistic] {
+        var totals: [MealCategory: Decimal] = [:]
+        for event in events where event.deletedAt == nil {
+            totals[event.category, default: .zero] += event.totals[Nutrient.energy.rawValue]?.knownSubtotal.value ?? .zero
+        }
+        return MealCategory.allCases.map { category in
+            GoalFoodStatistic(
+                id: category.rawValue,
+                name: copy.text(category.rawValue),
+                value: double(totals[category] ?? .zero),
+                unit: "kcal"
+            )
         }
     }
 
@@ -5577,10 +5533,120 @@ private struct GoalFoodGraphs: View {
     }
 }
 
+private struct GoalDailyMacroChart: View {
+    let events: [MealEvent]
+    let month: Date
+    let copy: AppCopy
+    @State private var selectedDay: String?
+
+    private struct DayTotal: Identifiable {
+        let id: String
+        let label: String
+        let totals: [Nutrient: Decimal]
+    }
+
+    private var days: [DayTotal] {
+        let calendar = Calendar.autoupdatingCurrent
+        guard let interval = calendar.dateInterval(of: .month, for: month),
+              let range = calendar.range(of: .day, in: .month, for: month) else { return [] }
+        var totals: [String: [Nutrient: Decimal]] = [:]
+        for event in events where event.deletedAt == nil {
+            for nutrient in MacronutrientColors.order {
+                totals[event.localDate, default: [:]][nutrient, default: .zero] +=
+                    event.totals[nutrient.rawValue]?.knownSubtotal.value ?? .zero
+            }
+        }
+        return range.compactMap { day in
+            guard let date = calendar.date(byAdding: .day, value: day - 1, to: interval.start) else { return nil }
+            let key = MealModel.day(date)
+            return DayTotal(id: key, label: day.formatted(.number.locale(copy.language.locale)), totals: totals[key] ?? [:])
+        }
+    }
+
+    var body: some View {
+        let days = days
+        let nutrients = MacronutrientColors.order
+        VStack(alignment: .leading, spacing: 12) {
+            Text(copy.text("dailyMacronutrients"))
+                .font(.title3.bold())
+            Chart {
+                ForEach(days) { day in
+                    ForEach(nutrients, id: \.rawValue) { nutrient in
+                        BarMark(
+                            x: .value("g", NSDecimalNumber(decimal: day.totals[nutrient] ?? .zero).doubleValue),
+                            y: .value(copy.text("dayOfMonth"), day.label)
+                        )
+                        .foregroundStyle(by: .value(copy.text("dailyMacronutrients"), copy.text(nutrient.rawValue)))
+                        .accessibilityLabel("\(copy.text("dayOfMonth")) \(day.label), \(copy.text(nutrient.rawValue))")
+                        .accessibilityValue("\(copy.number(day.totals[nutrient] ?? .zero)) g")
+                    }
+                }
+                if let selected = days.first(where: { $0.label == selectedDay }) {
+                    RuleMark(y: .value(copy.text("dayOfMonth"), selected.label))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                        .annotation(
+                            position: .top,
+                            spacing: 8,
+                            overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))
+                        ) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("\(copy.text("dayOfMonth")) \(selected.label)")
+                                    .font(.headline)
+                                ForEach(nutrients, id: \.rawValue) { nutrient in
+                                    Text("\(copy.text(nutrient.rawValue)): \(copy.number(selected.totals[nutrient] ?? .zero)) g")
+                                        .font(.callout)
+                                }
+                            }
+                            .padding(12)
+                            .foregroundStyle(.black)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+                            .allowsHitTesting(false)
+                        }
+                }
+            }
+            .chartYScale(domain: days.map(\.label))
+            .chartForegroundStyleScale(
+                domain: nutrients.map { copy.text($0.rawValue) },
+                range: [MacronutrientColors.protein, MacronutrientColors.carbohydrate, MacronutrientColors.fat]
+            )
+            .chartXAxisLabel("g")
+            .chartLegend(position: .bottom, alignment: .leading)
+            .chartYSelection(value: $selectedDay)
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(.clear)
+                        .contentShape(Rectangle())
+                        .gesture(SpatialTapGesture().onEnded { tap in
+                            guard let plotFrame = proxy.plotFrame else { return }
+                            let frame = geometry[plotFrame]
+                            guard frame.contains(tap.location),
+                                  let day: String = proxy.value(atY: tap.location.y - frame.minY) else {
+                                selectedDay = nil
+                                return
+                            }
+                            selectedDay = selectedDay == day ? nil : day
+                        })
+                }
+            }
+            .onChange(of: month) { _, _ in selectedDay = nil }
+            .frame(height: CGFloat(days.count) * 28 + 70)
+
+            Text(copy.text("tapBarForDetails"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
 private struct GoalFoodBarChart: View {
     let title: String
     let items: [GoalFoodStatistic]
     let copy: AppCopy
+    var categoryLabel: String? = nil
     @State private var selectedName: String?
 
     private let colors: [Color] = [.pink, .purple, .indigo, .blue, .teal, .green, .orange]
@@ -5592,7 +5658,7 @@ private struct GoalFoodBarChart: View {
             Chart(items) { item in
                 BarMark(
                     x: .value(title, item.value),
-                    y: .value(copy.text("foods"), item.name)
+                    y: .value(categoryLabel ?? copy.text("foods"), item.name)
                 )
                 .foregroundStyle(color(for: item))
                 .cornerRadius(5)

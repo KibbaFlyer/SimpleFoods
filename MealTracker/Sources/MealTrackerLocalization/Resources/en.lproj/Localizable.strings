@@ -256,3 +256,11 @@
 "clearFilters" = "Clear filters";
 "marketSweden" = "Sweden";
 "marketGermany" = "Germany";
+
+"searchCorrection" = "Showing results for";
+
+"energyByMealType" = "Total kcal by meal type";
+"mealType" = "Meal type";
+
+"dailyMacronutrients" = "Macronutrients per day";
+"dayOfMonth" = "Day";

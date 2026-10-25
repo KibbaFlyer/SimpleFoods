@@ -256,3 +256,11 @@
 "clearFilters" = "Rensa filter";
 "marketSweden" = "Sverige";
 "marketGermany" = "Tyskland";
+
+"searchCorrection" = "Visar resultat för";
+
+"energyByMealType" = "Totala kcal per måltidstyp";
+"mealType" = "Måltidstyp";
+
+"dailyMacronutrients" = "Makronäringsämnen per dag";
+"dayOfMonth" = "Dag";

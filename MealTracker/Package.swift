@@ -21,7 +21,7 @@ let package = Package(
         .testTarget(name: "MealTrackerHealthTests", dependencies: ["MealTrackerHealth"]),
         .target(name: "MealTrackerCore", path: "Sources/MealTrackerCore"),
         .target(name: "MealTrackerCatalog", dependencies: ["MealTrackerCore", .product(name: "GRDB", package: "GRDB.swift")], resources: [.copy("Resources/DevelopmentPack")]),
-        .target(name: "MealTrackerDiary", dependencies: ["MealTrackerCore", .product(name: "GRDB", package: "GRDB.swift")]),
+        .target(name: "MealTrackerDiary", dependencies: ["MealTrackerCore", "MealTrackerCatalog", "MealTrackerOpenFoodFacts", .product(name: "GRDB", package: "GRDB.swift")]),
         .target(name: "MealTrackerOpenFoodFacts", dependencies: ["MealTrackerCore", .product(name: "GRDB", package: "GRDB.swift")], resources: [.process("Resources")]),
         .target(name: "MealTrackerLocalization", dependencies: ["MealTrackerCore"], resources: [.process("Resources")]),
         .testTarget(name: "MealTrackerStorageTests", dependencies: ["MealTrackerCatalog", "MealTrackerDiary", "MealTrackerOpenFoodFacts", .product(name: "GRDB", package: "GRDB.swift")]),

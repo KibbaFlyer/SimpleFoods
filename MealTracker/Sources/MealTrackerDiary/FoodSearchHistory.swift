@@ -81,3 +81,24 @@ public final class FoodSearchHistory: Sendable {
         }
     }
 }
+
+extension FoodSearchHistory {
+    /// A cheap connection-local change counter invalidates cached decoded history
+    /// after diary, favorite, overlay or personal-food writes (including rollback).
+    public func revision() throws -> Int64 {
+        try store.writer.read { try Int64.fetchOne($0, sql: "SELECT total_changes()") ?? 0 }
+    }
+
+    public func selectionDates(query: String, language: String) throws -> [FoodID: Date] {
+        let query = Self.normalizedQuery(query, language: language)
+        guard !query.isEmpty else { return [:] }
+        return try store.writer.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT food_id,last_selected FROM food_search_queries WHERE query=? AND language=?", arguments: [query, language])
+            return try Dictionary(uniqueKeysWithValues: rows.map { row in
+                let key: String = row["food_id"]
+                let timestamp: Double = row["last_selected"]
+                return (try JSONDecoder().decode(FoodID.self, from: Data(key.utf8)), Date(timeIntervalSince1970: timestamp))
+            })
+        }
+    }
+}
