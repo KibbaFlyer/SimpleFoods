@@ -3059,45 +3059,58 @@ private struct FoodFilterTags: View {
     @Binding var origin: FoodOriginFilter
     @Binding var favoritesOnly: Bool
     let copy: AppCopy
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let markets = ["SE", "DE"]
     private let sources: [FoodOriginFilter] = [.openFoodFacts, .personal, .livsmedelsverket]
 
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: 0), spacing: 8, alignment: .leading), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+    }
+
+    private func color(for source: FoodOriginFilter) -> Color {
+        switch source {
+        case .all: .secondary
+        case .openFoodFacts: .teal
+        case .personal: .pink
+        case .livsmedelsverket: .green
+        }
+    }
+
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                FoodFilterChip(title: copy.text("favoritesFilter"), selected: favoritesOnly) {
-                    favoritesOnly.toggle()
-                }
-                ForEach(markets, id: \.self) { code in
-                    FoodFilterChip(title: copy.text(code == "SE" ? "marketSweden" : "marketGermany"), selected: market == code) {
-                        market = market == code ? "" : code
-                    }
-                }
-                ForEach(sources) { source in
-                    FoodFilterChip(title: copy.text(source.localizationKey), selected: origin == source) {
-                        origin = origin == source ? .all : source
-                    }
-                }
-                if !market.isEmpty || origin != .all || favoritesOnly {
-                    FoodFilterChip(title: copy.text("clearFilters"), selected: false) {
-                        market = ""
-                        origin = .all
-                        favoritesOnly = false
-                    }
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+            FoodFilterChip(title: copy.text("favoritesFilter"), color: .orange, selected: favoritesOnly) {
+                favoritesOnly.toggle()
+            }
+            ForEach(markets, id: \.self) { code in
+                FoodFilterChip(title: copy.text(code == "SE" ? "marketSweden" : "marketGermany"), color: code == "SE" ? .blue : .purple, selected: market == code) {
+                    market = market == code ? "" : code
                 }
             }
-            .padding(.vertical, 4)
+            ForEach(sources) { source in
+                FoodFilterChip(title: copy.text(source.localizationKey), color: color(for: source), selected: origin == source) {
+                    origin = origin == source ? .all : source
+                }
+            }
+            if !market.isEmpty || origin != .all || favoritesOnly {
+                FoodFilterChip(title: copy.text("clearFilters"), color: .secondary, selected: false) {
+                    market = ""
+                    origin = .all
+                    favoritesOnly = false
+                }
+            }
         }
-        .scrollIndicators(.hidden)
+        .padding(.vertical, 4)
     }
 }
 
-
 private struct FoodFilterChip: View {
     let title: String
+    let color: Color
     let selected: Bool
     let action: () -> Void
+    // Caption 2 is 11 pt at the default size; retain Dynamic Type scaling at 130%.
+    @ScaledMetric(relativeTo: .caption2) private var fontSize = 14.3
 
     var body: some View {
         Button(action: action) {
@@ -3106,20 +3119,21 @@ private struct FoodFilterChip: View {
                     Image(systemName: "checkmark")
                 }
                 Text(title)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.tint)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.tint.opacity(selected ? 0.28 : 0.12), in: Capsule())
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+            .font(.system(size: fontSize, weight: .medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(color.opacity(selected ? 0.28 : 0.12), in: Capsule())
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
-
 
 private struct OFFNameEntryDetail: View {
     let entry: OFFNameEntry
@@ -4119,7 +4133,7 @@ struct MealComposer: View {
                         matches = result.foods
                     }
                 }
-                Section(copy.text("chooseFood")) {
+                Section(copy.text("tags")) {
                     FoodFilterTags(market: $market, origin: $foodOrigin, favoritesOnly: $favoritesOnly, copy: copy)
                     if isSearching {
                         ProgressView()
@@ -4737,7 +4751,7 @@ private struct QuickFoodAdd: View {
                     }
                 }
 
-                Section(copy.text("chooseFood")) {
+                Section(copy.text("tags")) {
                     TextField(copy.text("search"), text: $query)
                         .onChange(of: query) { _, _ in search() }
                     FoodFilterTags(market: $market, origin: $foodOrigin, favoritesOnly: $favoritesOnly, copy: copy)
