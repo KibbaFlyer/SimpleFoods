@@ -197,10 +197,10 @@
 "tapBarForDetails" = "Tippe auf einen Balken, um den Wert anzuzeigen.";
 "portions" = "Portionen";
 "goalMetric" = "Zielwert";
-"goalRange" = "Zielbereich";
+"goalRange" = "Kalorien-Zielbereich";
 "goalRangeMinimum" = "Minimum";
 "goalRangeMaximum" = "Maximum";
-"goalRangeHelp" = "Ein Tag erreicht das Ziel, wenn der ausgewählte Nährwert in diesem Prozentbereich liegt.";
+"goalRangeHelp" = "Ein Tag erfüllt das Kalorienziel, wenn die Energieaufnahme innerhalb dieses Prozentbereichs liegt.";
 "goalCalendarRange" = "Bereich für Häkchen";
 "macroGoals" = "Makronährstoffziele";
 "macroGoalTotalHelp" = "Protein, Kohlenhydrate und Fett müssen zusammen 100 % ergeben.";
@@ -264,3 +264,6 @@
 
 "dailyMacronutrients" = "Makronährstoffe pro Tag";
 "dayOfMonth" = "Tag";
+
+"macroGoalRange" = "Zielbereich für Makronährstoffe";
+"macroGoalRangeHelp" = "Protein, Kohlenhydrate und Fett werden unter Ziele grün angezeigt, wenn ihre Tagesmengen innerhalb dieses Prozentbereichs ihrer jeweiligen Ziele liegen; andernfalls orange.";

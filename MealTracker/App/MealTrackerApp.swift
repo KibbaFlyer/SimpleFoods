@@ -738,6 +738,80 @@ private struct OFFNameEntryLabel: View {
     }
 }
 
+/// Observes tab reselection, which does not trigger SwiftUI's selection onChange.
+private struct TodayTabReselectionObserver: UIViewControllerRepresentable {
+    let onReselect: () -> Void
+
+    func makeUIViewController(context: Context) -> ObserverController {
+        let controller = ObserverController()
+        controller.onReselect = onReselect
+        return controller
+    }
+
+    func updateUIViewController(_ controller: ObserverController, context: Context) {
+        controller.onReselect = onReselect
+        controller.install()
+    }
+
+    static func dismantleUIViewController(_ controller: ObserverController, coordinator: ()) {
+        controller.uninstall()
+    }
+
+    final class ObserverController: UIViewController, UITabBarControllerDelegate {
+        var onReselect: (() -> Void)?
+        private weak var observedTabController: UITabBarController?
+        private weak var originalDelegate: (any UITabBarControllerDelegate)?
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            install()
+        }
+
+        func install() {
+            guard let controller = tabBarController, controller.delegate !== self else { return }
+            uninstall()
+            observedTabController = controller
+            originalDelegate = controller.delegate
+            controller.delegate = self
+        }
+
+        func uninstall() {
+            if let controller = observedTabController, controller.delegate === self {
+                controller.delegate = originalDelegate
+            }
+            observedTabController = nil
+            originalDelegate = nil
+        }
+
+        func tabBarController(_ controller: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+            let allowed = originalDelegate?.tabBarController?(controller, shouldSelect: viewController) ?? true
+            if allowed, controller.selectedViewController === viewController {
+                onReselect?()
+            }
+            return allowed
+        }
+
+        @available(iOS 18.0, *)
+        func tabBarController(_ controller: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
+            let allowed = originalDelegate?.tabBarController?(controller, shouldSelectTab: tab) ?? true
+            if allowed, controller.selectedTab === tab {
+                onReselect?()
+            }
+            return allowed
+        }
+
+        // Preserve SwiftUI's existing selection, customization and navigation behavior.
+        override func responds(to selector: Selector!) -> Bool {
+            super.responds(to: selector) || originalDelegate?.responds(to: selector) == true
+        }
+
+        override func forwardingTarget(for selector: Selector!) -> Any? {
+            if originalDelegate?.responds(to: selector) == true { return originalDelegate }
+            return super.forwardingTarget(for: selector)
+        }
+    }
+}
+
 private enum DaySwipeAxis {
     case horizontal
     case vertical
@@ -764,6 +838,8 @@ struct MealShell: View {
     @AppStorage("includeEnergyExpenditureInGoal") private var includeEnergyExpenditureInGoal = true
     @AppStorage("goalRangeMinimumPercent") private var goalRangeMinimumPercent = 90
     @AppStorage("goalRangeMaximumPercent") private var goalRangeMaximumPercent = 110
+    @AppStorage("macroGoalRangeMinimumPercent") private var macroGoalRangeMinimumPercent = 90
+    @AppStorage("macroGoalRangeMaximumPercent") private var macroGoalRangeMaximumPercent = 110
     @State private var date = Date()
     @State private var addRequest: AddRequest?
     @State private var deleting: MealEvent?
@@ -797,6 +873,11 @@ struct MealShell: View {
                     .simultaneousGesture(daySwipe(pageWidth: proxy.size.width))
                 }
                     .clipped()
+                    .background(TodayTabReselectionObserver {
+                        guard selectedTab == .today else { return }
+                        dismissChartTooltips()
+                        date = Calendar.autoupdatingCurrent.startOfDay(for: Date())
+                    })
                     .navigationTitle("")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -872,6 +953,8 @@ struct MealShell: View {
                     fatPercent: fatEnergyPercent,
                     goalRangeMinimumPercent: goalRangeMinimumPercent,
                     goalRangeMaximumPercent: goalRangeMaximumPercent,
+                    macroGoalRangeMinimumPercent: macroGoalRangeMinimumPercent,
+                    macroGoalRangeMaximumPercent: macroGoalRangeMaximumPercent,
                     activeEnergyByDay: includeEnergyExpenditureInGoal ? model.activeEnergyByDay : [:],
                     refreshID: goalCalendarRefreshID,
                     refreshActivity: { days in
@@ -902,6 +985,8 @@ struct MealShell: View {
                 includeEnergyExpenditureInGoal: $includeEnergyExpenditureInGoal,
                 goalRangeMinimumPercent: $goalRangeMinimumPercent,
                 goalRangeMaximumPercent: $goalRangeMaximumPercent,
+                macroGoalRangeMinimumPercent: $macroGoalRangeMinimumPercent,
+                macroGoalRangeMaximumPercent: $macroGoalRangeMaximumPercent,
                 date: date
             )
             .tabItem { Label(copy.text("settings"), systemImage: "gearshape") }
@@ -1126,6 +1211,8 @@ struct MealShell: View {
             }
         }
         .scrollDisabled(daySwipeAxis == .horizontal || isChangingDay)
+        // Each pager slot gets a fresh scroll position when it displays a new day.
+        .id(MealModel.day(pageDate))
     }
 
     @ViewBuilder private func totals(for events: [MealEvent]) -> some View {
@@ -1325,9 +1412,29 @@ private struct SavedMealsTab: View {
     }
 }
 
+/// Adds a dismissal control to decimal keyboards, which have no Return key.
+private struct AmountKeyboardDone: ViewModifier {
+    let title: String
+    @FocusState private var isFocused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($isFocused)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    if isFocused {
+                        Spacer()
+                        Button(title) { isFocused = false }
+                    }
+                }
+            }
+    }
+}
+
 private struct RecipeServingsField: View {
     @Binding var text: String
     let accessibilityLabel: String
+    let doneTitle: String
 
     @State private var selection: TextSelection?
     @FocusState private var isFocused: Bool
@@ -1338,6 +1445,14 @@ private struct RecipeServingsField: View {
             .multilineTextAlignment(.trailing)
             .focused($isFocused)
             .accessibilityLabel(accessibilityLabel)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    if isFocused {
+                        Spacer()
+                        Button(doneTitle) { isFocused = false }
+                    }
+                }
+            }
             .onChange(of: isFocused) { _, isFocused in
                 guard isFocused else { return }
                 Task {
@@ -1454,7 +1569,8 @@ private struct SavedMealCreator: View {
                     LabeledContent(copy.text("servingsProduced")) {
                         RecipeServingsField(
                             text: $servings,
-                            accessibilityLabel: copy.text("servingsProduced")
+                            accessibilityLabel: copy.text("servingsProduced"),
+                            doneTitle: copy.text("done")
                         )
                     }
                 }
@@ -1468,6 +1584,7 @@ private struct SavedMealCreator: View {
                             Spacer()
                             TextField(copy.text("amount"), text: amountBinding(for: $ingredient))
                                 .keyboardType(.decimalPad)
+                                .modifier(AmountKeyboardDone(title: copy.text("done")))
                                 .multilineTextAlignment(.trailing)
                             Text(ingredient.quantity.unit == .millilitres ? "ml" : "g")
                         }
@@ -1691,7 +1808,8 @@ private struct SavedMealMetadataSheet: View {
                     LabeledContent(copy.text("servingsProduced")) {
                         RecipeServingsField(
                             text: $servings,
-                            accessibilityLabel: copy.text("servingsProduced")
+                            accessibilityLabel: copy.text("servingsProduced"),
+                            doneTitle: copy.text("done")
                         )
                     }
                 }
@@ -1775,7 +1893,8 @@ private struct SavedMealEditor: View {
                     LabeledContent(copy.text("servingsProduced")) {
                         RecipeServingsField(
                             text: $servings,
-                            accessibilityLabel: copy.text("servingsProduced")
+                            accessibilityLabel: copy.text("servingsProduced"),
+                            doneTitle: copy.text("done")
                         )
                     }
                 }
@@ -1792,6 +1911,7 @@ private struct SavedMealEditor: View {
                             Spacer()
                             TextField(copy.text("amount"), text: amountBinding(for: $ingredient))
                                 .keyboardType(.decimalPad)
+                                .modifier(AmountKeyboardDone(title: copy.text("done")))
                                 .multilineTextAlignment(.trailing)
                             Text(ingredient.quantity.unit == .millilitres ? "ml" : "g")
                         }
@@ -2155,6 +2275,18 @@ private struct SavedMealLogSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    LabeledContent(copy.text("servingsToLog")) {
+                        RecipeServingsField(
+                            text: $servings,
+                            accessibilityLabel: copy.text("servingsToLog"),
+                            doneTitle: copy.text("done")
+                        )
+                    }
+                    Picker(copy.text("category"), selection: $category) {
+                        ForEach(MealCategory.allCases, id: \.rawValue) { Text(copy.text($0.rawValue)).tag($0) }
+                    }
+                }
                 Section(copy.text("savedMeals")) {
                     if model.savedMeals.isEmpty { Text(copy.text("noSavedMeals")) }
                     ForEach(model.savedMeals) { meal in
@@ -2166,17 +2298,6 @@ private struct SavedMealLogSheet: View {
                             }
                         }
                         .buttonStyle(.plain)
-                    }
-                }
-                Section {
-                    LabeledContent(copy.text("servingsToLog")) {
-                        RecipeServingsField(
-                            text: $servings,
-                            accessibilityLabel: copy.text("servingsToLog")
-                        )
-                    }
-                    Picker(copy.text("category"), selection: $category) {
-                        ForEach(MealCategory.allCases, id: \.rawValue) { Text(copy.text($0.rawValue)).tag($0) }
                     }
                 }
                 if let error { Text(error).foregroundStyle(.red) }
@@ -2236,6 +2357,8 @@ private struct SettingsTab: View {
     @Binding var includeEnergyExpenditureInGoal: Bool
     @Binding var goalRangeMinimumPercent: Int
     @Binding var goalRangeMaximumPercent: Int
+    @Binding var macroGoalRangeMinimumPercent: Int
+    @Binding var macroGoalRangeMaximumPercent: Int
     let date: Date
     @State private var isDailyEnergyGoalEditing = false
 
@@ -2263,6 +2386,13 @@ private struct SettingsTab: View {
                     fatEnergyPercent: $fatEnergyPercent,
                     total: macroTotal,
                     copy: copy
+                )
+                SettingsGoalRangeSection(
+                    minimumPercent: $macroGoalRangeMinimumPercent,
+                    maximumPercent: $macroGoalRangeMaximumPercent,
+                    copy: copy,
+                    titleKey: "macroGoalRange",
+                    helpKey: "macroGoalRangeHelp"
                 )
                 SettingsHealthSection(model: model, date: date, copy: copy)
                 LivsmedelsverketSyncSection(model: model, copy: copy)
@@ -2682,9 +2812,11 @@ private struct SettingsGoalRangeSection: View {
     @Binding var minimumPercent: Int
     @Binding var maximumPercent: Int
     let copy: AppCopy
+    var titleKey = "goalRange"
+    var helpKey = "goalRangeHelp"
 
     var body: some View {
-        Section(copy.text("goalRange")) {
+        Section(copy.text(titleKey)) {
             EditablePercentStepper(
                 title: copy.text("goalRangeMinimum"),
                 value: $minimumPercent,
@@ -2695,7 +2827,7 @@ private struct SettingsGoalRangeSection: View {
                 value: $maximumPercent,
                 range: minimumPercent...300
             )
-            Text(copy.text("goalRangeHelp"))
+            Text(copy.text(helpKey))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -4940,6 +5072,7 @@ private struct MealComponentRow: View {
             HStack(spacing: 4) {
                 TextField(copy.text("amount"), text: $amount)
                     .keyboardType(.decimalPad)
+                    .modifier(AmountKeyboardDone(title: copy.text("done")))
                     .multilineTextAlignment(.trailing)
                     .frame(width: 72)
                     .accessibilityIdentifier("meal.component.grams")
@@ -4990,6 +5123,7 @@ private struct MealFoodAmountSheet: View {
                     }
                     TextField(copy.text("amount"), text: $amount)
                         .keyboardType(.decimalPad)
+                        .modifier(AmountKeyboardDone(title: copy.text("done")))
                         .accessibilityIdentifier("meal.grams")
                 }
 
@@ -5183,6 +5317,8 @@ private struct GoalCalendarView: View {
     let fatPercent: Int
     let goalRangeMinimumPercent: Int
     let goalRangeMaximumPercent: Int
+    let macroGoalRangeMinimumPercent: Int
+    let macroGoalRangeMaximumPercent: Int
     let activeEnergyByDay: [String: MealTrackerHealth.EnergyValue]
     let refreshID: Int
     let refreshActivity: ([Date]) async -> Void
@@ -5239,7 +5375,7 @@ private struct GoalCalendarView: View {
                     }
                     Text(
                         "\(copy.text("goalCalendarRange")): " +
-                        "\(goalRangeMinimumPercent)%–\(goalRangeMaximumPercent)%"
+                        "\(selectedGoalRangeMinimumPercent)%–\(selectedGoalRangeMaximumPercent)%"
                     )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -5277,11 +5413,19 @@ private struct GoalCalendarView: View {
         }.map(Optional.some)
     }
 
+    private var selectedGoalRangeMinimumPercent: Int {
+        metric == .energy ? goalRangeMinimumPercent : macroGoalRangeMinimumPercent
+    }
+
+    private var selectedGoalRangeMaximumPercent: Int {
+        metric == .energy ? goalRangeMaximumPercent : macroGoalRangeMaximumPercent
+    }
+
     private func dayCell(_ date: Date) -> some View {
         let key = MealModel.day(date)
         let summary = summaries[key]
         let progress = summary.map(progress(for:))
-        let goalRange = Double(goalRangeMinimumPercent) / 100...Double(goalRangeMaximumPercent) / 100
+        let goalRange = Double(selectedGoalRangeMinimumPercent) / 100...Double(selectedGoalRangeMaximumPercent) / 100
         let met = progress.map { goalRange.contains($0) } ?? false
         return Button {
             selectedDayKey = key

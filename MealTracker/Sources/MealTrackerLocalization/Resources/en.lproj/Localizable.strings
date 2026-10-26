@@ -197,10 +197,10 @@
 "tapBarForDetails" = "Tap a bar to see its value.";
 "portions" = "portions";
 "goalMetric" = "Goal metric";
-"goalRange" = "Goal range";
+"goalRange" = "Calorie goal range";
 "goalRangeMinimum" = "Minimum";
 "goalRangeMaximum" = "Maximum";
-"goalRangeHelp" = "A day meets the goal when the selected nutrient is within this percentage range.";
+"goalRangeHelp" = "A day meets the calorie goal when its energy intake is within this percentage range.";
 "goalCalendarRange" = "Checkmark range";
 "macroGoals" = "Macronutrient goals";
 "macroGoalTotalHelp" = "Protein, carbohydrate, and fat must total 100%.";
@@ -264,3 +264,6 @@
 
 "dailyMacronutrients" = "Macronutrients per day";
 "dayOfMonth" = "Day";
+
+"macroGoalRange" = "Macronutrient goal range";
+"macroGoalRangeHelp" = "Protein, carbohydrates, and fat are green in Goals when their daily amounts are within this percentage of their respective targets; otherwise they are orange.";

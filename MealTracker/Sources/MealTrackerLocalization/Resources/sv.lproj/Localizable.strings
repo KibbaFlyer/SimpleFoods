@@ -197,10 +197,10 @@
 "tapBarForDetails" = "Tryck på en stapel för att se värdet.";
 "portions" = "portioner";
 "goalMetric" = "Målvärde";
-"goalRange" = "Målintervall";
+"goalRange" = "Kalorimålets intervall";
 "goalRangeMinimum" = "Minimum";
 "goalRangeMaximum" = "Maximum";
-"goalRangeHelp" = "En dag uppnår målet när det valda näringsvärdet ligger inom detta procentintervall.";
+"goalRangeHelp" = "En dag uppfyller kalorimålet när energiintaget ligger inom detta procentintervall.";
 "goalCalendarRange" = "Intervall för bock";
 "macroGoals" = "Makronäringsmål";
 "macroGoalTotalHelp" = "Protein, kolhydrater och fett måste tillsammans bli 100 %.";
@@ -264,3 +264,6 @@
 
 "dailyMacronutrients" = "Makronäringsämnen per dag";
 "dayOfMonth" = "Dag";
+
+"macroGoalRange" = "Målintervall för makronäringsämnen";
+"macroGoalRangeHelp" = "Protein, kolhydrater och fett visas gröna i Mål när dagens mängder ligger inom detta procentintervall av respektive mål; annars visas de orange.";
