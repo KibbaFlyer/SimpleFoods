@@ -6,6 +6,17 @@
 	objectVersion = 60;
 	objects = {
 
+
+/* Begin PBXCopyFilesBuildPhase section */
+		F10000000000000000000017 = { isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (F1000000000000000000000E, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
+/* Begin PBXContainerItemProxy section */
+		F10000000000000000000018 = { isa = PBXContainerItemProxy; containerPortal = 000000000000000000000001; proxyType = 1; remoteGlobalIDString = F1000000000000000000001E; remoteInfo = SimpleFoodsWidgets; };
+/* End PBXContainerItemProxy section */
+/* Begin PBXTargetDependency section */
+		F10000000000000000000019 = { isa = PBXTargetDependency; target = F1000000000000000000001E; targetProxy = F10000000000000000000018; };
+/* End PBXTargetDependency section */
+
 /* Begin PBXBuildFile section */
 		000000000000000000000019 /* App/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000018 /* App/PrivacyInfo.xcprivacy */; };
 		000000000000000000000065 /* App/BarcodeScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000064 /* App/BarcodeScanner.swift */; };
@@ -23,6 +34,12 @@
 		0000000000000000000001FF /* MealTrackerHealth in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000001FE /* MealTrackerHealth */; };
 		8FE4B1DA307C10F100A466D9 /* MealSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FE4B1D9307C10F100A466D9 /* MealSharing.swift */; };
 		8FE4B1DC307C156100A466D9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8FE4B1DB307C156100A466D9 /* Assets.xcassets */; };
+		F1000000000000000000000A = { isa = PBXBuildFile; fileRef = F10000000000000000000001; };
+		F1000000000000000000000B = { isa = PBXBuildFile; fileRef = F10000000000000000000002; };
+		F1000000000000000000000C = { isa = PBXBuildFile; fileRef = F10000000000000000000001; };
+		F1000000000000000000000D = { isa = PBXBuildFile; fileRef = F10000000000000000000003; };
+		F1000000000000000000000E = { isa = PBXBuildFile; fileRef = F10000000000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F1000000000000000000002C = {isa = PBXBuildFile; fileRef = F1000000000000000000002B; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +58,15 @@
 		8FE4B1D7307C10C400A466D9 /* MealTracker-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "MealTracker-Info.plist"; sourceTree = "<group>"; };
 		8FE4B1D9307C10F100A466D9 /* MealSharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealSharing.swift; sourceTree = "<group>"; };
 		8FE4B1DB307C156100A466D9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F10000000000000000000001 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/WidgetSnapshot.swift; sourceTree = "<group>"; };
+		F10000000000000000000002 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WidgetSnapshotPublisher.swift; sourceTree = "<group>"; };
+		F10000000000000000000003 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Widgets/SimpleFoodsWidgets.swift; sourceTree = "<group>"; };
+		F10000000000000000000004 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Widgets/Info.plist; sourceTree = "<group>"; };
+		F10000000000000000000005 = { isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widgets/Widgets.entitlements; sourceTree = "<group>"; };
+		F10000000000000000000006 = { isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SimpleFoodsWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10000000000000000000028 = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Widgets/en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		F10000000000000000000029 = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = sv; path = Widgets/sv.lproj/Localizable.strings; sourceTree = "<group>"; };
+		F1000000000000000000002A = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = Widgets/de.lproj/Localizable.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +83,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F10000000000000000000015 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -64,6 +91,13 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000193 /* Config/Shared.xcconfig */,
+				F10000000000000000000001,
+				F10000000000000000000002,
+				F10000000000000000000003,
+				F10000000000000000000004,
+				F10000000000000000000005,
+				F1000000000000000000002B,
+
 				8FE4B1D7307C10C400A466D9 /* MealTracker-Info.plist */,
 				000000000000000000000064 /* App/BarcodeScanner.swift */,
 				000000000000000000000066 /* App/FoodEditor.swift */,
@@ -84,6 +118,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000006 /* MealTracker.app */,
+				F10000000000000000000006,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -105,10 +140,12 @@
 				000000000000000000000007 /* Sources */,
 				000000000000000000000008 /* Frameworks */,
 				000000000000000000000009 /* Resources */,
+				F10000000000000000000017,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				F10000000000000000000019,
 			);
 			name = MealTracker;
 			packageProductDependencies = (
@@ -123,6 +160,7 @@
 			productReference = 000000000000000000000006 /* MealTracker.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F1000000000000000000001E = { isa = PBXNativeTarget; buildConfigurationList = F1000000000000000000001F; buildPhases = (F10000000000000000000014, F10000000000000000000015, F10000000000000000000016, ); buildRules = (); dependencies = (); name = SimpleFoodsWidgets; productName = SimpleFoodsWidgets; productReference = F10000000000000000000006; productType = "com.apple.product-type.app-extension"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -151,6 +189,7 @@
 			projectRoot = "";
 			targets = (
 				000000000000000000000004 /* MealTracker */,
+				F1000000000000000000001E,
 			);
 		};
 /* End PBXProject section */
@@ -166,6 +205,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F10000000000000000000016 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (F1000000000000000000002C, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -174,6 +214,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000065 /* App/BarcodeScanner.swift in Sources */,
+				F1000000000000000000000A,
+				F1000000000000000000000B,
 				000000000000000000000067 /* App/FoodEditor.swift in Sources */,
 				000000000000000000000069 /* App/HealthEnergySection.swift in Sources */,
 				8FE4B1DA307C10F100A466D9 /* MealSharing.swift in Sources */,
@@ -183,6 +225,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F10000000000000000000014 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (F1000000000000000000000C, F1000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXVariantGroup section */
@@ -196,6 +239,7 @@
 			name = InfoPlist.strings;
 			sourceTree = "<group>";
 		};
+		F1000000000000000000002B = {isa = PBXVariantGroup; children = (F10000000000000000000028, F10000000000000000000029, F1000000000000000000002A, ); name = Localizable.strings; sourceTree = "<group>"; };
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
@@ -354,6 +398,8 @@
 			};
 			name = Release;
 		};
+		F10000000000000000000020 = { isa = XCBuildConfiguration; baseConfigurationReference = 000000000000000000000193; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = Widgets/Widgets.entitlements; CODE_SIGN_STYLE = Automatic; PROVISIONING_PROFILE_SPECIFIER = ""; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = Widgets/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 18.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 1.3.0; PRODUCT_BUNDLE_IDENTIFIER = "$(SIMPLEFOODS_BASE_BUNDLE_IDENTIFIER).widgets"; PRODUCT_NAME = "$(TARGET_NAME)"; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		F10000000000000000000021 = { isa = XCBuildConfiguration; baseConfigurationReference = 000000000000000000000193; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = Widgets/Widgets.entitlements; CODE_SIGN_STYLE = Automatic; PROVISIONING_PROFILE_SPECIFIER = ""; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = Widgets/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 18.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 1.3.0; PRODUCT_BUNDLE_IDENTIFIER = "$(SIMPLEFOODS_BASE_BUNDLE_IDENTIFIER).widgets"; PRODUCT_NAME = "$(TARGET_NAME)"; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -375,6 +421,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		F1000000000000000000001F = { isa = XCConfigurationList; buildConfigurations = (F10000000000000000000020, F10000000000000000000021, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */

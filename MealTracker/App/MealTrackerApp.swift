@@ -275,6 +275,18 @@ struct MealTrackerApp: App {
 @MainActor final class MealModel: ObservableObject {
     private static let healthConnectionRequestedKey = "healthConnectionRequested"
 
+    @Published var pendingWidgetRoute: FoodWidgetRoute?
+    private var widgetPublishTask: Task<Void, Never>?
+
+    func scheduleWidgetSnapshot() {
+        widgetPublishTask?.cancel()
+        widgetPublishTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.publishWidgetSnapshot()
+        }
+    }
+
     @Published var events: [MealEvent] = []
     @Published private var eventsByDay: [String: [MealEvent]] = [:]
     @Published var savedMeals: [SavedMeal] = []
@@ -416,6 +428,7 @@ struct MealTrackerApp: App {
         calendar.timeZone = TimeZone(identifier: value.window.timeZoneID) ?? .current
         guard calendar.isDate(day, inSameDayAs: value.window.start) else { return }
         activeEnergyByDay[Self.day(day)] = value
+        scheduleWidgetSnapshot()
     }
     func syncMealToHealth(_ event: MealEvent) async {
         guard healthConnected else { return }
@@ -440,6 +453,7 @@ struct MealTrackerApp: App {
         }
     }
     func reload(_ date: Date) {
+        defer { scheduleWidgetSnapshot() }
         let calendar = Calendar.autoupdatingCurrent
         do {
             var loadedDays: Set<String> = []
@@ -848,6 +862,8 @@ struct MealShell: View {
     @State private var choosingDate = false
     @State private var selectedTab = MealTrackerTab.today
     @State private var goalCalendarRefreshID = 0
+    @State private var widgetShowsGraphs = false
+    @State private var widgetGoalsNavigationID = 0
     @State private var dayPageOffset: CGFloat = 0
     @State private var isChangingDay = false
     @State private var daySwipeAxis: DaySwipeAxis?
@@ -957,6 +973,8 @@ struct MealShell: View {
                     macroGoalRangeMaximumPercent: macroGoalRangeMaximumPercent,
                     activeEnergyByDay: includeEnergyExpenditureInGoal ? model.activeEnergyByDay : [:],
                     refreshID: goalCalendarRefreshID,
+                    showGraphs: widgetShowsGraphs,
+                    widgetNavigationID: widgetGoalsNavigationID,
                     refreshActivity: { days in
                         guard includeEnergyExpenditureInGoal else { return }
                         await model.refreshGoalHealth(days: days, restoring: date)
@@ -1060,6 +1078,43 @@ struct MealShell: View {
             Button(copy.text("cancel"), role: .cancel) { model.cancelPendingShareImport() }
         } message: {
             Text(copy.text("sharedDuplicateMessage"))
+        }
+        .task(id: model.pendingWidgetRoute) {
+            guard let route = model.pendingWidgetRoute else { return }
+            let hadPresentedSheet = addRequest != nil || editing != nil || duplicating != nil || choosingDate
+            addRequest = nil
+            editing = nil
+            duplicating = nil
+            choosingDate = false
+            if hadPresentedSheet {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+            }
+            date = Date()
+            dismissChartTooltips()
+            switch route {
+            case .goals, .graphs:
+                widgetShowsGraphs = route == .graphs
+                widgetGoalsNavigationID += 1
+                goalCalendarRefreshID += 1
+                selectedTab = .goals
+            case .today:
+                selectedTab = .today
+            case .meal, .food, .nutrition, .recipe:
+                selectedTab = .today
+                let kind: AddRequest.Kind
+                switch route {
+                case .food: kind = .quickFood
+                case .nutrition: kind = .customNutrition
+                case .recipe: kind = .recipe
+                default: kind = .meal
+                }
+                addRequest = AddRequest(kind: kind, date: Date())
+            }
+            model.pendingWidgetRoute = nil
+        }
+        .task(id: "\(language.rawValue)|\(dailyEnergyGoal)|\(proteinEnergyPercent)|\(carbohydrateEnergyPercent)|\(fatEnergyPercent)|\(goalRangeMinimumPercent)|\(goalRangeMaximumPercent)|\(macroGoalRangeMinimumPercent)|\(macroGoalRangeMaximumPercent)|\(includeEnergyExpenditureInGoal)") {
+            model.scheduleWidgetSnapshot()
         }
         .onChange(of: model.importedMealDate) { _, importedDate in
             guard let importedDate else { return }
@@ -2267,12 +2322,27 @@ private struct SavedMealLogSheet: View {
     let copy: AppCopy
     let selectedDate: Date
     @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
     @State private var selectedMealID: UUID?
     @State private var servings = "1"
     @State private var category = MealCategory.snack
     @State private var error: String?
 
+    private var filteredMeals: [SavedMeal] {
+        let terms = query.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard !terms.isEmpty else { return model.savedMeals }
+        return model.savedMeals.filter { meal in
+            let values = [meal.name] + meal.tags + meal.ingredients.map(\.displayName)
+            return terms.allSatisfy { term in
+                values.contains {
+                    $0.range(of: term, options: [.caseInsensitive, .diacriticInsensitive], locale: copy.language.locale) != nil
+                }
+            }
+        }
+    }
+
     var body: some View {
+        let meals = filteredMeals
         NavigationStack {
             Form {
                 Section {
@@ -2288,8 +2358,13 @@ private struct SavedMealLogSheet: View {
                     }
                 }
                 Section(copy.text("savedMeals")) {
-                    if model.savedMeals.isEmpty { Text(copy.text("noSavedMeals")) }
-                    ForEach(model.savedMeals) { meal in
+                    if model.savedMeals.isEmpty {
+                        Text(copy.text("noSavedMeals"))
+                    } else if meals.isEmpty {
+                        Text(copy.text("noSearchResults"))
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(meals) { meal in
                         Button { selectedMealID = meal.id } label: {
                             HStack {
                                 SavedMealRow(meal: meal, copy: copy)
@@ -2303,6 +2378,12 @@ private struct SavedMealLogSheet: View {
                 if let error { Text(error).foregroundStyle(.red) }
             }
             .navigationTitle(copy.text("addSavedMeal"))
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: copy.text("search"))
+            .onChange(of: query) { _, _ in
+                if let selectedMealID, !filteredMeals.contains(where: { $0.id == selectedMealID }) {
+                    self.selectedMealID = nil
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(copy.text("cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -5321,6 +5402,8 @@ private struct GoalCalendarView: View {
     let macroGoalRangeMaximumPercent: Int
     let activeEnergyByDay: [String: MealTrackerHealth.EnergyValue]
     let refreshID: Int
+    let showGraphs: Bool
+    let widgetNavigationID: Int
     let refreshActivity: ([Date]) async -> Void
     let viewInToday: (Date) -> Void
 
@@ -5387,6 +5470,11 @@ private struct GoalCalendarView: View {
             .padding()
         }
         .navigationTitle(copy.text("goals"))
+        .onChange(of: widgetNavigationID, initial: true) { _, _ in
+            guard widgetNavigationID > 0 else { return }
+            displayedMonth = Date()
+            viewMode = showGraphs ? .graph : .calendar
+        }
         .task(id: "\(MealModel.day(displayedMonth))-\(refreshID)") {
             loadMonth()
             let loggedDates = summaries.values

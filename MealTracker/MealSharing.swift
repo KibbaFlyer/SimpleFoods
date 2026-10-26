@@ -164,6 +164,10 @@ enum ShareImportError: Error {
 
 extension MealModel {
     func receiveSharedURL(_ url: URL) {
+        if let route = FoodWidgetRoute(url: url) {
+            pendingWidgetRoute = route
+            return
+        }
         do {
             let payload = try MealSharePayload.decode(url)
             if try sharedPayloadHasDuplicate(payload) {
