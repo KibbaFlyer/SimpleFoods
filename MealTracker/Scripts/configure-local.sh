@@ -14,7 +14,11 @@ fi
 
 : "${APPLE_DEVELOPMENT_TEAM:=}"
 : "${APP_BUNDLE_IDENTIFIER:=com.example.SimpleFoods}"
+: "${WIDGET_BUNDLE_IDENTIFIER:=$APP_BUNDLE_IDENTIFIER.widgets}"
+: "${APP_GROUP_IDENTIFIER:=group.$APP_BUNDLE_IDENTIFIER}"
 : "${APP_PROVISIONING_PROFILE:=}"
+: "${WIDGET_PROVISIONING_PROFILE:=}"
+: "${WIDGET_SIGNING_IDENTITY:=Apple Distribution}"
 : "${TIP_PRODUCT_ID:=}"
 : "${PUBLIC_REPOSITORY:=}"
 
@@ -23,6 +27,12 @@ case "$APPLE_DEVELOPMENT_TEAM" in
 esac
 case "$APP_BUNDLE_IDENTIFIER" in
     *[!A-Za-z0-9.-]* | "" ) echo "APP_BUNDLE_IDENTIFIER is invalid" >&2; exit 1 ;;
+esac
+case "$WIDGET_BUNDLE_IDENTIFIER" in
+    *[!A-Za-z0-9.-]* | "" ) echo "WIDGET_BUNDLE_IDENTIFIER is invalid" >&2; exit 1 ;;
+esac
+case "$APP_GROUP_IDENTIFIER" in
+    *[!A-Za-z0-9.-]* | "" ) echo "APP_GROUP_IDENTIFIER is invalid" >&2; exit 1 ;;
 esac
 case "$TIP_PRODUCT_ID" in
     *[!A-Za-z0-9.-]* ) echo "TIP_PRODUCT_ID contains invalid characters" >&2; exit 1 ;;
@@ -39,7 +49,14 @@ umask 077
     printf 'DEVELOPMENT_TEAM = %s\n' "$APPLE_DEVELOPMENT_TEAM"
     printf 'PRODUCT_BUNDLE_IDENTIFIER = %s\n' "$APP_BUNDLE_IDENTIFIER"
     printf 'SIMPLEFOODS_BASE_BUNDLE_IDENTIFIER = %s\n' "$APP_BUNDLE_IDENTIFIER"
+    printf 'SIMPLEFOODS_WIDGET_BUNDLE_IDENTIFIER = %s\n' "$WIDGET_BUNDLE_IDENTIFIER"
+    printf 'SIMPLEFOODS_APP_GROUP = %s\n' "$APP_GROUP_IDENTIFIER"
     printf 'PROVISIONING_PROFILE_SPECIFIER = %s\n' "$APP_PROVISIONING_PROFILE"
+    if [ -n "$WIDGET_PROVISIONING_PROFILE" ]; then
+        printf 'SIMPLEFOODS_WIDGET_SIGNING_STYLE = Manual\n'
+        printf 'SIMPLEFOODS_WIDGET_PROVISIONING_PROFILE = %s\n' "$WIDGET_PROVISIONING_PROFILE"
+        printf 'SIMPLEFOODS_WIDGET_SIGNING_IDENTITY = %s\n' "$WIDGET_SIGNING_IDENTITY"
+    fi
     printf 'SIMPLEFOODS_TIP_PRODUCT_ID = %s\n' "$TIP_PRODUCT_ID"
     printf 'SIMPLEFOODS_REPOSITORY = %s\n' "$PUBLIC_REPOSITORY"
 } > "$output_file"
