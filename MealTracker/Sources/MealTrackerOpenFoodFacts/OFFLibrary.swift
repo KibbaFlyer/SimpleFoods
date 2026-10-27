@@ -97,6 +97,11 @@ public struct OFFNameEntry: Codable, Equatable, Hashable, Sendable, Identifiable
         names[language] ?? names["en"] ?? names["sv"] ?? names["de"] ?? names["und"] ?? barcode
     }
 }
+public struct OFFNameSearchResult: Sendable {
+    public let entries: [OFFNameEntry]
+    public let correctedQuery: String?
+}
+
 public struct OFFSyncItem: Sendable { public let barcode: String; public let changed: Bool; public let error: String? }
 public struct OFFSyncReport: Sendable {
     public let items: [OFFSyncItem]
@@ -108,6 +113,7 @@ public struct OFFSyncReport: Sendable {
 /// A separate cache database. Nothing here writes bundled catalogues, private overlays or meal snapshots.
 public actor OFFLibrary {
     private let db: DatabaseQueue
+    private var nameSearchIndex: FoodNameSearchIndex?
     private let transport: OFFTransport
     private let clock: @Sendable () -> Date
     private let userAgent: String
@@ -116,7 +122,7 @@ public actor OFFLibrary {
     private var blockedUntil: Date?
     private var lastRequestAt: Date?
     private var fetching = false
-    public init(databaseURL: URL, transport: OFFTransport? = nil, clock: @escaping @Sendable () -> Date = { Date() }, userAgent: String = "SimpleFoods/0.2", sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) throws {
+    public init(databaseURL: URL, transport: OFFTransport? = nil, clock: @escaping @Sendable () -> Date = { Date() }, userAgent: String = "SimpleFoods/0.2", seedBundledNameIndex: Bool = true, sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) throws {
         let directory = databaseURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         #if os(iOS)
@@ -147,7 +153,7 @@ public actor OFFLibrary {
             try db.execute(sql: "CREATE TABLE IF NOT EXISTS off_name_index (barcode TEXT PRIMARY KEY, payload BLOB NOT NULL, search_text TEXT NOT NULL, markets TEXT NOT NULL)")
             try db.execute(sql: "CREATE TABLE IF NOT EXISTS off_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         }
-        try Self.seedBundledNames(into: db)
+        if seedBundledNameIndex { try Self.seedBundledNames(into: db) }
         var protectedURL = databaseURL
         var values = URLResourceValues(); values.isExcludedFromBackup = true
         try protectedURL.setResourceValues(values)
@@ -157,39 +163,60 @@ public actor OFFLibrary {
         }
         #endif
     }
-    public func names(query: String, language: String, market: String?, limit: Int? = nil) throws -> [OFFNameEntry] {
-        let needle = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: language))
-        var conditions: [String] = []
-        var arguments = StatementArguments()
-        if !needle.isEmpty {
-            let terms = needle.split(whereSeparator: { $0.isWhitespace }).map(String.init).filter { $0.count > 1 }
-            let needles = terms.count > 1 ? [needle] + terms : [needle]
-            conditions.append("(" + Array(repeating: "search_text LIKE ?", count: needles.count).joined(separator: " OR ") + ")")
-            for searchNeedle in needles {
-                arguments += ["%\(searchNeedle)%"]
-            }
-        }
-        if let market {
-            conditions.append("markets LIKE ?")
-            arguments += ["%|\(market)|%"]
-        }
-        let whereClause = conditions.isEmpty ? "" : " WHERE " + conditions.joined(separator: " AND ")
-        let entries: [OFFNameEntry] = try db.read {
-            try Data.fetchAll($0, sql: "SELECT payload FROM off_name_index\(whereClause)", arguments: arguments)
-                .compactMap { try? JSONDecoder().decode(OFFNameEntry.self, from: $0) }
-        }
-        let locale = Locale(identifier: language)
-        let ranked: [(entry: OFFNameEntry, name: String, rank: Int)] = entries.compactMap { entry in
-            let name = entry.displayName(language: language)
-            guard let rank = FoodSearchRanking.rank(displayName: name, searchableNames: entry.searchableNames, query: query, locale: locale) else { return nil }
-            return (entry: entry, name: name, rank: rank)
-        }
-        let sorted = ranked.sorted { left, right in
-            if left.rank != right.rank { return left.rank < right.rank }
-            return left.name.compare(right.name, options: [.caseInsensitive, .diacriticInsensitive, .numeric], range: nil, locale: locale) == .orderedAscending
-        }
-        return limit.map { Array(sorted.prefix(max(1, $0)).map(\.entry)) } ?? sorted.map(\.entry)
+    /// Prepare the persistent derived index without tying its lifetime to typing.
+    public func prepareSearchIndex() throws {
+        _ = try prepareNameSearchIndex()
     }
+
+    public func names(query: String, language: String, market: String?, limit: Int? = nil) throws -> [OFFNameEntry] {
+        let result = try searchNames(query: query, language: language, market: market, limit: limit ?? 100)
+        return result.entries
+    }
+
+    public func searchNames(query: String, language: String, market: String?, limit: Int) throws -> OFFNameSearchResult {
+        let index = try prepareNameSearchIndex()
+        let candidates = try index.candidates(query: query, language: language, market: market, source: nil, limit: limit)
+        guard !candidates.ids.isEmpty else { return OFFNameSearchResult(entries: [], correctedQuery: candidates.correctedQuery) }
+        try Task.checkCancellation()
+        let entries = try db.read { db in
+            var entries: [OFFNameEntry] = []
+            let decoder = JSONDecoder()
+            for offset in stride(from: 0, to: candidates.ids.count, by: 500) {
+                try Task.checkCancellation()
+                let ids = Array(candidates.ids[offset..<min(offset + 500, candidates.ids.count)])
+                let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+                entries += try Data.fetchAll(db, sql: "SELECT payload FROM off_name_index WHERE barcode IN (\(placeholders))", arguments: StatementArguments(ids))
+                    .map { try decoder.decode(OFFNameEntry.self, from: $0) }
+            }
+            return entries
+        }
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.barcode, $0) })
+        return OFFNameSearchResult(entries: candidates.ids.compactMap { byID[$0] }, correctedQuery: candidates.correctedQuery)
+    }
+
+    private func prepareNameSearchIndex() throws -> FoodNameSearchIndex {
+        if let nameSearchIndex { return nameSearchIndex }
+        let index = try FoodNameSearchIndex(database: db)
+        try db.write { database in
+            let digest = try String.fetchOne(database, sql: "SELECT value FROM off_metadata WHERE key='nameIndexDigest'") ?? ""
+            let signature = "fts-v1|trigram=\(index.supportsTrigrams)|" + digest
+            let existing = try String.fetchOne(database, sql: "SELECT value FROM off_metadata WHERE key='nameSearchSignature'")
+            guard existing != signature else { return }
+            try index.reset(in: database)
+            let cursor = try Data.fetchCursor(database, sql: "SELECT payload FROM off_name_index ORDER BY barcode")
+            let decoder = JSONDecoder()
+            while let data = try cursor.next() {
+                try Task.checkCancellation()
+                let entry = try decoder.decode(OFFNameEntry.self, from: data)
+                try index.insert(FoodSearchDocument(id: entry.barcode, source: "off", names: entry.names, brand: entry.brand ?? "", markets: entry.markets), in: database)
+            }
+            try index.finish(in: database)
+            try database.execute(sql: "INSERT INTO off_metadata VALUES ('nameSearchSignature',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", arguments: [signature])
+        }
+        nameSearchIndex = index
+        return index
+    }
+
     public func name(barcode: String) throws -> OFFNameEntry? {
         let validated = try Barcode(barcode)
         return try db.read { database in

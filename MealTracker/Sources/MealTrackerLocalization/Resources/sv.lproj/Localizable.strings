@@ -179,6 +179,7 @@
 "macroComposition" = "Makronäringsfördelning";
 "noMacroData" = "Lägg till en måltid för att se dagens makronäringsfördelning.";
 "energyProgress" = "Energi jämfört med mål";
+"untilGoal" = "Kvar till målet:";
 "energyGoal" = "Energimål";
 "dailyEnergyGoal" = "Dagligt mål (kcal)";
 "energyGoalHelp" = "Används för energijämförelsen på sidan Idag.";
@@ -196,10 +197,10 @@
 "tapBarForDetails" = "Tryck på en stapel för att se värdet.";
 "portions" = "portioner";
 "goalMetric" = "Målvärde";
-"goalRange" = "Målintervall";
+"goalRange" = "Kalorimålets intervall";
 "goalRangeMinimum" = "Minimum";
 "goalRangeMaximum" = "Maximum";
-"goalRangeHelp" = "En dag uppnår målet när det valda näringsvärdet ligger inom detta procentintervall.";
+"goalRangeHelp" = "En dag uppfyller kalorimålet när energiintaget ligger inom detta procentintervall.";
 "goalCalendarRange" = "Intervall för bock";
 "macroGoals" = "Makronäringsmål";
 "macroGoalTotalHelp" = "Protein, kolhydrater och fett måste tillsammans bli 100 %.";
@@ -214,6 +215,9 @@
 "adjustedGoal" = "Mål efter rörelse";
 "mealTotalEnergy" = "Måltidens total";
 "savedMeals" = "Recept";
+"sortRecipes" = "Sortera recept";
+"recentlyModified" = "Senast ändrade (nyast först)";
+"leastRecentlyModified" = "Senast ändrade (äldst först)";
 "searchRecipes" = "Sök recept";
 "noSavedMeals" = "Inga sparade recept";
 "addSavedMeal" = "Lägg till recept";
@@ -237,3 +241,29 @@
 "addCustomNutrition" = "Lägg till egen näring";
 "customNutritionExplanation" = "Ange näringen för posten. Den läggs endast till i den valda måltiden.";
 "recipeImportExperimental" = "Receptimport är en experimentell funktion och kanske inte tolkar alla ingredienser korrekt. Granska resultatet innan du sparar.";
+
+"recentlyUsed" = "Nyligen använd";
+
+"favoriteFood" = "Favorit";
+
+"addFavorite" = "Lägg till som favorit";
+
+"removeFavorite" = "Ta bort som favorit";
+
+"filterTags" = "Filtertaggar";
+"searchFilterTags" = "Sök filtertaggar";
+"favoritesFilter" = "Favoriter";
+"clearFilters" = "Rensa filter";
+"marketSweden" = "Sverige";
+"marketGermany" = "Tyskland";
+
+"searchCorrection" = "Visar resultat för";
+
+"energyByMealType" = "Totala kcal per måltidstyp";
+"mealType" = "Måltidstyp";
+
+"dailyMacronutrients" = "Makronäringsämnen per dag";
+"dayOfMonth" = "Dag";
+
+"macroGoalRange" = "Målintervall för makronäringsämnen";
+"macroGoalRangeHelp" = "Protein, kolhydrater och fett visas gröna i Mål när dagens mängder ligger inom detta procentintervall av respektive mål; annars visas de orange.";

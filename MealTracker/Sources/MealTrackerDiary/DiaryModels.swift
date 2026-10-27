@@ -150,6 +150,14 @@ public enum DiaryTime {
     public static func validate(_ date:Date)throws { guard date.timeIntervalSince1970.isFinite, (-62135596800...253402300799).contains(date.timeIntervalSince1970) else { throw DiaryError.invalidInput } }
     public static func calendar(zoneID:String)throws->Calendar { guard let zone=TimeZone(identifier:zoneID) else { throw DiaryError.invalidZone };var calendar=Calendar(identifier:.gregorian);calendar.timeZone=zone;return calendar }
     public static func localDate(_ date:Date,zoneID:String)throws->String { try validate(date);let c=try calendar(zoneID:zoneID).dateComponents([.year,.month,.day],from:date);return String(format:"%04d-%02d-%02d",c.year!,c.month!,c.day!) }
-    public static func category(_ date:Date,zoneID:String)throws->MealCategory { try validate(date);let c=try calendar(zoneID:zoneID).dateComponents([.hour,.minute],from:date);switch c.hour!*60+c.minute! { case 300..<660:return .breakfast;case 660..<900:return .lunch;case 1020..<1260:return .dinner;default:return .snack } }
+    public static func category(_ date: Date, zoneID: String) throws -> MealCategory {
+        try validate(date)
+        let hour = try calendar(zoneID: zoneID).component(.hour, from: date)
+        switch hour {
+        case ..<11: return .breakfast
+        case ..<17: return .lunch
+        default: return .dinner
+        }
+    }
     public static func dayInterval(containing date:Date,zoneID:String)throws->DateInterval { try validate(date);guard let interval=try calendar(zoneID:zoneID).dateInterval(of:.day,for:date) else { throw DiaryError.invalidInput };return interval }
 }

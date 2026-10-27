@@ -30,6 +30,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>SimpleFoodsAppGroup</key>
+	<string>$(SIMPLEFOODS_APP_GROUP)</string>
 	<key>SimpleFoodsRepository</key>
 	<string>$(SIMPLEFOODS_REPOSITORY)</string>
 	<key>SimpleFoodsTipProductID</key>
