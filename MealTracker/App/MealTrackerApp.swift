@@ -5842,7 +5842,19 @@ private struct GoalDailyMacroChart: View {
                 domain: nutrients.map { copy.text($0.rawValue) },
                 range: [MacronutrientColors.protein, MacronutrientColors.carbohydrate, MacronutrientColors.fat]
             )
-            .chartXAxisLabel("g")
+            .chartXAxis {
+                AxisMarks {
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel().foregroundStyle(Color.primary)
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) {
+                    AxisValueLabel().foregroundStyle(Color.primary)
+                }
+            }
+            .chartXAxisLabel { Text("g").foregroundStyle(Color.primary) }
             .chartLegend(position: .bottom, alignment: .leading)
             .chartYSelection(value: $selectedDay)
             .chartOverlay { proxy in
@@ -5898,7 +5910,16 @@ private struct GoalFoodBarChart: View {
             }
             .chartYSelection(value: $selectedName)
             .chartXAxis {
-                AxisMarks(position: .bottom)
+                AxisMarks(position: .bottom) {
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel().foregroundStyle(Color.primary)
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) {
+                    AxisValueLabel().foregroundStyle(Color.primary)
+                }
             }
             .frame(height: max(190, CGFloat(items.count) * 40))
             .accessibilityLabel(title)
@@ -5946,10 +5967,10 @@ private struct GoalMacroRanking: View {
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(item.name).lineLimit(1)
+                        Text(item.name).foregroundStyle(Color.primary).lineLimit(1)
                         Spacer()
                         Text("\(copy.macronutrient(Decimal(item.value))) g")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.primary)
                     }
                     GeometryReader { proxy in
                         Capsule()
