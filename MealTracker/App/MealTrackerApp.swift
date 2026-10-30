@@ -574,7 +574,7 @@ struct MealTrackerRoot: View {
     var body: some View {
         Group {
             if let model { MealShell(model: model, language: $language) }
-            else if let startupError { VStack { ContentUnavailableView("Simple Foods", systemImage: "exclamationmark.triangle", description: Text(startupError)); Button(AppCopy(language: language).text("retry")) { self.startupError = nil } } }
+            else if startupError != nil { VStack { ContentUnavailableView("Simple Foods", systemImage: "exclamationmark.triangle", description: Text(AppCopy(language: language).text("retry"))); Button(AppCopy(language: language).text("retry")) { self.startupError = nil } } }
             else { ProgressView().task {
                 do {
                     let loadedModel = try MealModel()
@@ -588,6 +588,7 @@ struct MealTrackerRoot: View {
                 }
             } }
         }
+        .temporaryErrorBanner(startupError)
         .onOpenURL { url in
             if let model {
                 model.receiveSharedURL(url)
@@ -1065,7 +1066,14 @@ struct MealShell: View {
                 do { _ = try model.diary.delete(id: event.id, operationID: UUID(), expectedRevision: event.revision); model.reload(date) } catch { model.error = appError(error) }; deleting = nil
             }
         }
-        .alert("Simple Foods", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("OK") { model.error = nil } } message: { Text(model.error ?? "") }
+        .temporaryErrorBanner(model.error)
+        .task(id: model.error) {
+            guard model.error != nil else { return }
+            do {
+                try await Task.sleep(for: .seconds(8))
+                model.error = nil
+            } catch { }
+        }
         .confirmationDialog(
             copy.text("sharedDuplicateTitle"),
             isPresented: Binding(
@@ -1294,27 +1302,15 @@ struct MealShell: View {
     }
 }
 
-private struct SavedMealsTab: View {
-    private enum SortOrder: String {
-        case recentlyModified, leastRecentlyModified, name
-    }
+private enum RecipeSortOrder: String, CaseIterable {
+    case recentlyModified, leastRecentlyModified, name
 
-    @ObservedObject var model: MealModel
-    let copy: AppCopy
-    @State private var editing: SavedMeal?
-    @State private var deleting: SavedMeal?
-    @State private var selectedTag: String?
-    @State private var importingRecipe = false
-    @State private var creatingRecipe = false
-    @State private var query = ""
-    @State private var sortOrder: SortOrder = .recentlyModified
-
-    private var sortedMeals: [SavedMeal] {
-        filteredMeals.sorted { left, right in
-            switch sortOrder {
+    func sorted(_ meals: [SavedMeal], locale: Locale) -> [SavedMeal] {
+        meals.sorted { left, right in
+            switch self {
             case .recentlyModified, .leastRecentlyModified:
                 if left.updatedAt != right.updatedAt {
-                    return sortOrder == .recentlyModified
+                    return self == .recentlyModified
                         ? left.updatedAt > right.updatedAt
                         : left.updatedAt < right.updatedAt
                 }
@@ -1324,11 +1320,27 @@ private struct SavedMealsTab: View {
             let comparison = left.name.compare(
                 right.name,
                 options: [.caseInsensitive, .diacriticInsensitive],
-                locale: copy.language.locale
+                locale: locale
             )
             if comparison != .orderedSame { return comparison == .orderedAscending }
             return left.id.uuidString < right.id.uuidString
         }
+    }
+}
+
+private struct SavedMealsTab: View {
+    @ObservedObject var model: MealModel
+    let copy: AppCopy
+    @State private var editing: SavedMeal?
+    @State private var deleting: SavedMeal?
+    @State private var selectedTag: String?
+    @State private var importingRecipe = false
+    @State private var creatingRecipe = false
+    @State private var query = ""
+    @State private var sortOrder: RecipeSortOrder = .recentlyModified
+
+    private var sortedMeals: [SavedMeal] {
+        sortOrder.sorted(filteredMeals, locale: copy.language.locale)
     }
 
     private var availableTags: [String] {
@@ -1408,9 +1420,9 @@ private struct SavedMealsTab: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Picker(copy.text("sortRecipes"), selection: $sortOrder) {
-                            Text(copy.text("recentlyModified")).tag(SortOrder.recentlyModified)
-                            Text(copy.text("leastRecentlyModified")).tag(SortOrder.leastRecentlyModified)
-                            Text(copy.text("name")).tag(SortOrder.name)
+                            Text(copy.text("recentlyModified")).tag(RecipeSortOrder.recentlyModified)
+                            Text(copy.text("leastRecentlyModified")).tag(RecipeSortOrder.leastRecentlyModified)
+                            Text(copy.text("name")).tag(RecipeSortOrder.name)
                         }
                     } label: {
                         Label(copy.text("sortRecipes"), systemImage: "arrow.up.arrow.down")
@@ -1615,6 +1627,23 @@ private struct SavedMealCreator: View {
     @State private var addingFood = false
     @State private var gingerbreadIngredientID: UUID?
 
+    private var nutritionValues: RecipeNutritionValues? {
+        guard let canonicalServings = copy.canonicalQuantity(servings),
+              let servingAmount = Decimal(string: canonicalServings, locale: Locale(identifier: "en_US_POSIX")) else {
+            return nil
+        }
+        var previewIngredients = ingredients
+        for index in previewIngredients.indices {
+            guard let rawAmount = amounts[previewIngredients[index].id],
+                  let canonicalAmount = copy.canonicalQuantity(rawAmount),
+                  let amount = try? DecimalAmount(canonicalAmount) else {
+                return nil
+            }
+            previewIngredients[index].quantity.amount = amount
+        }
+        return recipeNutritionValues(ingredients: previewIngredients, servings: servingAmount)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -1629,13 +1658,23 @@ private struct SavedMealCreator: View {
                         )
                     }
                 }
+                Section(copy.text("nutrition")) {
+                    RecipeNutritionSummary(values: nutritionValues, copy: copy)
+                }
                 Section(copy.text("ingredients")) {
                     ForEach($ingredients) { $ingredient in
                         HStack {
-                            GingerbreadFoodLabel(
-                                text: ingredient.displayName,
-                                celebrate: gingerbreadIngredientID == ingredient.id
-                            )
+                            VStack(alignment: .leading) {
+                                GingerbreadFoodLabel(text: ingredient.displayName, celebrate: gingerbreadIngredientID == ingredient.id)
+                                if let raw = amounts[ingredient.id],
+                                   let canonical = copy.canonicalQuantity(raw),
+                                   let amount = try? DecimalAmount(canonical),
+                                   let consumed = try? LoggedQuantity(amount: amount, unit: ingredient.quantity.unit).consumed(),
+                                   let totals = try? NutritionCalculator.calculate(profile: ingredient.food.profile, quantity: consumed) {
+                                    Text("\(copy.kilocalories(totals[.energy].knownSubtotal)) kcal")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
                             TextField(copy.text("amount"), text: amountBinding(for: $ingredient))
                                 .keyboardType(.decimalPad)
@@ -1656,9 +1695,7 @@ private struct SavedMealCreator: View {
                         Label(copy.text("addFood"), systemImage: "plus")
                     }
                 }
-                if let error {
-                    Text(error).foregroundStyle(.red)
-                }
+
             }
             .navigationTitle(copy.text("createRecipe"))
             .toolbar {
@@ -1684,6 +1721,7 @@ private struct SavedMealCreator: View {
                 }
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func amountBinding(for ingredient: Binding<MealComponent>) -> Binding<String> {
@@ -1868,7 +1906,7 @@ private struct SavedMealMetadataSheet: View {
                         )
                     }
                 }
-                if let error { Text(error).foregroundStyle(.red) }
+
             }
             .navigationTitle(copy.text("saveAsMeal"))
             .toolbar {
@@ -1879,6 +1917,7 @@ private struct SavedMealMetadataSheet: View {
                 }
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func save() {
@@ -1997,7 +2036,7 @@ private struct SavedMealEditor: View {
                         }
                     }
                 }
-                if let error { Text(error).foregroundStyle(.red) }
+
             }
             .navigationTitle(copy.text("editMeal"))
             .toolbar {
@@ -2018,6 +2057,7 @@ private struct SavedMealEditor: View {
                 }
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func amountBinding(for ingredient: Binding<MealComponent>) -> Binding<String> {
@@ -2144,7 +2184,7 @@ private struct RecipeFoodPicker: View {
                    (!query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !market.isEmpty || origin != .all || favoritesOnly) {
                     ContentUnavailableView(copy.text("noSearchResults"), systemImage: "magnifyingglass")
                 }
-                if let error { Text(error).foregroundStyle(.red) }
+
                 Color.clear
                     .frame(height: 64)
                     .listRowBackground(Color.clear)
@@ -2161,10 +2201,11 @@ private struct RecipeFoodPicker: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(copy.text("cancel")) { dismiss() } }
             }
-            .alert("Open Food Facts", isPresented: $showingUnsupportedProduct) {
-                Button(copy.text("done"), role: .cancel) { purgeUnsupportedProduct() }
-            } message: {
-                Text(copy.text("unsupported"))
+            .onChange(of: showingUnsupportedProduct) { _, showing in
+                guard showing else { return }
+                error = copy.text("unsupported")
+                purgeUnsupportedProduct()
+                showingUnsupportedProduct = false
             }
             .sheet(item: $amountSelection) { selection in
                 MealFoodAmountSheet(
@@ -2179,6 +2220,7 @@ private struct RecipeFoodPicker: View {
                 )
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func search() async {
@@ -2225,6 +2267,8 @@ private struct RecipeFoodPicker: View {
     }
 
     private func select(_ food: CatalogueFood) {
+        amount = "100"
+        unit = .grams
         model.recordFoodSelection(food, query: query, language: copy.language)
         if case let .catalogue(namespace, _) = food.id, namespace == "off" {
             if let loadedProduct = model.offProducts.first(where: { $0.food?.id == food.id }) {
@@ -2323,6 +2367,7 @@ private struct SavedMealLogSheet: View {
     let selectedDate: Date
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var sortOrder = RecipeSortOrder.recentlyModified
     @State private var selectedMealID: UUID?
     @State private var servings = "1"
     @State private var category = MealCategory.snack
@@ -2342,7 +2387,7 @@ private struct SavedMealLogSheet: View {
     }
 
     var body: some View {
-        let meals = filteredMeals
+        let meals = sortOrder.sorted(filteredMeals, locale: copy.language.locale)
         NavigationStack {
             Form {
                 Section {
@@ -2375,7 +2420,7 @@ private struct SavedMealLogSheet: View {
                         .buttonStyle(.plain)
                     }
                 }
-                if let error { Text(error).foregroundStyle(.red) }
+
             }
             .navigationTitle(copy.text("addSavedMeal"))
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: copy.text("search"))
@@ -2385,6 +2430,17 @@ private struct SavedMealLogSheet: View {
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Picker(copy.text("sortRecipes"), selection: $sortOrder) {
+                            ForEach(RecipeSortOrder.allCases, id: \.rawValue) { order in
+                                Text(copy.text(order.rawValue)).tag(order)
+                            }
+                        }
+                    } label: {
+                        Label(copy.text("sortRecipes"), systemImage: "arrow.up.arrow.down")
+                    }
+                }
                 ToolbarItem(placement: .cancellationAction) { Button(copy.text("cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(copy.text("add")) { add() }
@@ -2396,6 +2452,7 @@ private struct SavedMealLogSheet: View {
                 category = (try? DiaryTime.category(selectedDate, zoneID: TimeZone.current.identifier)) ?? .snack
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func add() {
@@ -2941,12 +2998,8 @@ private struct SettingsMacroGoalSection: View {
             )
             Text("\(copy.text("total")): \(total)%")
                 .foregroundStyle(total == 100 ? Color.secondary : Color.red)
-            if total != 100 {
-                Text(copy.text("macroGoalTotalHelp"))
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
         }
+        .temporaryErrorBanner(total == 100 ? nil : copy.text("macroGoalTotalHelp"))
     }
 }
 
@@ -3176,6 +3229,8 @@ private struct FoodFilterTags: View {
     let copy: AppCopy
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    @AppStorage("foodSearch.tagsExpanded") private var expanded = true
+
     private let markets = ["SE", "DE"]
     private let sources: [FoodOriginFilter] = [.openFoodFacts, .personal, .livsmedelsverket]
 
@@ -3193,29 +3248,31 @@ private struct FoodFilterTags: View {
     }
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-            FoodFilterChip(title: copy.text("favoritesFilter"), color: .orange, selected: favoritesOnly) {
-                favoritesOnly.toggle()
-            }
-            ForEach(markets, id: \.self) { code in
-                FoodFilterChip(title: copy.text(code == "SE" ? "marketSweden" : "marketGermany"), color: code == "SE" ? .blue : .purple, selected: market == code) {
-                    market = market == code ? "" : code
+        DisclosureGroup(copy.text("tags"), isExpanded: $expanded) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+                FoodFilterChip(title: copy.text("favoritesFilter"), color: .orange, selected: favoritesOnly) {
+                    favoritesOnly.toggle()
+                }
+                ForEach(markets, id: \.self) { code in
+                    FoodFilterChip(title: copy.text(code == "SE" ? "marketSweden" : "marketGermany"), color: code == "SE" ? .blue : .purple, selected: market == code) {
+                        market = market == code ? "" : code
+                    }
+                }
+                ForEach(sources) { source in
+                    FoodFilterChip(title: copy.text(source.localizationKey), color: color(for: source), selected: origin == source) {
+                        origin = origin == source ? .all : source
+                    }
+                }
+                if !market.isEmpty || origin != .all || favoritesOnly {
+                    FoodFilterChip(title: copy.text("clearFilters"), color: .secondary, selected: false) {
+                        market = ""
+                        origin = .all
+                        favoritesOnly = false
+                    }
                 }
             }
-            ForEach(sources) { source in
-                FoodFilterChip(title: copy.text(source.localizationKey), color: color(for: source), selected: origin == source) {
-                    origin = origin == source ? .all : source
-                }
-            }
-            if !market.isEmpty || origin != .all || favoritesOnly {
-                FoodFilterChip(title: copy.text("clearFilters"), color: .secondary, selected: false) {
-                    market = ""
-                    origin = .all
-                    favoritesOnly = false
-                }
-            }
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
 }
 
@@ -3257,13 +3314,14 @@ private struct OFFNameEntryDetail: View {
     let searchQuery: String
     @State private var product: OFFProduct?
     @State private var error: String?
+    @State private var retryID = 0
 
     var body: some View {
         Group {
             if let product, let food = product.food {
                 FoodDetail(food: food, product: product, model: model, copy: copy)
-            } else if let error {
-                ContentUnavailableView(copy.text("offError"), systemImage: "wifi.exclamationmark", description: Text(error))
+            } else if error != nil {
+                Button(copy.text("retry")) { error = nil; retryID += 1 }
             } else {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -3272,7 +3330,7 @@ private struct OFFNameEntryDetail: View {
                 .navigationTitle(entry.displayName(language: copy.language.rawValue))
             }
         }
-        .task {
+        .task(id: retryID) {
             do {
                 // lookup is cache-first and only contacts OFF when this barcode has
                 // not already been hydrated on the device.
@@ -3285,6 +3343,7 @@ private struct OFFNameEntryDetail: View {
                 self.error = appError(error)
             }
         }
+        .temporaryErrorBanner(error)
     }
 }
 
@@ -4054,60 +4113,63 @@ private struct BarcodeFoodSearchSection: View {
     let copy: AppCopy
     let completion: (BarcodeFoodSearchResult) -> Void
 
+    @AppStorage("foodSearch.barcodeExpanded") private var expanded = true
     @State private var barcode = ""
     @State private var scanning = false
     @State private var searchStatus: SearchStatus?
     @State private var error: String?
 
     var body: some View {
-        Section(copy.text("barcode")) {
-            HStack {
-                TextField(copy.text("barcode"), text: $barcode)
-                    .keyboardType(.numberPad)
-                    .accessibilityIdentifier("barcode.input")
-                Button {
-                    scanning = true
-                } label: {
-                    Image(systemName: "camera")
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(copy.text("scan"))
-                .accessibilityIdentifier("barcode.scan")
-            }
-            .fullScreenCover(isPresented: $scanning) {
-                NavigationStack {
-                    BarcodeScanner(copy: copy) { code in
-                        barcode = code
-                        scanning = false
-                        Task { await lookup() }
+        Section {
+            DisclosureGroup(copy.text("barcode"), isExpanded: $expanded) {
+                HStack {
+                    TextField(copy.text("barcode"), text: $barcode)
+                        .keyboardType(.numberPad)
+                        .accessibilityIdentifier("barcode.input")
+                    Button {
+                        scanning = true
+                    } label: {
+                        Image(systemName: "camera")
                     }
-                    .toolbar {
-                        Button(copy.text("cancel")) { scanning = false }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(copy.text("scan"))
+                    .accessibilityIdentifier("barcode.scan")
+                }
+                .fullScreenCover(isPresented: $scanning) {
+                    NavigationStack {
+                        BarcodeScanner(copy: copy) { code in
+                            barcode = code
+                            scanning = false
+                            Task { await lookup() }
+                        }
+                        .toolbar {
+                            Button(copy.text("cancel")) { scanning = false }
+                        }
                     }
                 }
-            }
-            Button(copy.text("lookup")) {
-                Task { await lookup() }
-            }
-            .disabled(searchStatus?.isSearching == true)
-            if let searchStatus {
-                HStack(spacing: 8) {
-                    if searchStatus.isSearching {
-                        ProgressView()
-                    }
-                    Text(copy.text(searchStatus.localizationKey))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Button(copy.text("lookup")) {
+                    Task { await lookup() }
                 }
-                .frame(maxWidth: .infinity)
-            }
-            if let error {
-                Text(error).foregroundStyle(.red)
+                .disabled(searchStatus?.isSearching == true)
+                if let searchStatus {
+                    HStack(spacing: 8) {
+                        if searchStatus.isSearching {
+                            ProgressView()
+                        }
+                        Text(copy.text(searchStatus.localizationKey))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func lookup() async {
+        error = nil
         guard let code = BarcodeInput.normalized(barcode) else {
             error = copy.text("barcodeError")
             return
@@ -4138,12 +4200,14 @@ private struct BarcodeFoodSearchSection: View {
             }
 
             guard !foods.isEmpty else {
-                searchStatus = .notFound
+                searchStatus = nil
+                error = copy.text("barcodeNotFound")
                 return
             }
             completion(BarcodeFoodSearchResult(foods: foods, product: product))
         } catch let lookupError as OFFError where lookupError == .notFound {
-            searchStatus = .notFound
+            searchStatus = nil
+            error = copy.text("barcodeNotFound")
         } catch {
             self.error = appError(error, copy: copy)
         }
@@ -4198,6 +4262,7 @@ struct MealComposer: View {
     @State private var error: String?
     @State private var showingUnsupportedProduct = false
     @State private var unsupportedProductBarcode: String?
+    @State private var didInitialize = false
     @State private var draftID = UUID()
     @State private var confirmFuture = false
     @State private var operationID = UUID()
@@ -4218,173 +4283,200 @@ struct MealComposer: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                DatePicker(copy.text("date"), selection: $eatenAt, displayedComponents: .date)
-                    .environment(\.timeZone, TimeZone(identifier: zoneID) ?? .current)
-                    .onChange(of: eatenAt) { _, value in if !categoryManual { category = suggestion(value) }; persist() }
-                Picker(copy.text("category"), selection: Binding(get: { category }, set: { category = $0; categoryManual = true; persist() })) { ForEach(MealCategory.allCases, id: \.rawValue) { Text(copy.text($0.rawValue)).tag($0) } }
-                    .onChange(of: category) { _, _ in persist() }
-                if !components.isEmpty {
-                    Section(copy.text("mealFoods")) {
-                        ForEach(components) { component in
-                            MealComponentRow(
-                                component: component,
-                                amount: componentQuantity(component),
+            GeometryReader { geometry in
+                ScrollViewReader { scroll in
+                    Form {
+                        DatePicker(copy.text("date"), selection: $eatenAt, displayedComponents: .date)
+                            .environment(\.timeZone, TimeZone(identifier: zoneID) ?? .current)
+                            .onChange(of: eatenAt) { _, value in if !categoryManual { category = suggestion(value) }; persist() }
+                        Picker(copy.text("category"), selection: Binding(get: { category }, set: { category = $0; categoryManual = true; persist() })) { ForEach(MealCategory.allCases, id: \.rawValue) { Text(copy.text($0.rawValue)).tag($0) } }
+                            .onChange(of: category) { _, _ in persist() }
+                        if !components.isEmpty {
+                            Section(copy.text("mealFoods")) {
+                                ForEach(components) { component in
+                                    MealComponentRow(
+                                        component: component,
+                                        amount: componentQuantity(component),
+                                        copy: copy,
+                                        celebrateLebkuchen: gingerbreadComponentID == component.id,
+                                        remove: {
+                                            invalidComponents.remove(component.id)
+                                            componentInputs.removeValue(forKey: component.id)
+                                            components.removeAll { $0.id == component.id }
+                                            persist()
+                                        }
+                                    )
+                                }
+                                LabeledContent(copy.text("mealTotalEnergy")) {
+                                    Text("\(copy.kilocalories(accumulatedKilocalories)) kcal")
+                                        .fontWeight(.semibold)
+                                }
+                                Button(copy.text("saveAsMeal")) { savingReusableMeal = true }
+                            }
+                        }
+                        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            BarcodeFoodSearchSection(model: model, copy: copy) { result in
+                                showingBarcodeResults = true
+                                searchID = UUID()
+                                isSearching = false
+                                offNameMatches = []
+                                resultLimit = 20
+                                selected = nil
+                                product = result.product
+                                selectedProvenance = result.product?.provenance
+                                pendingOFFBarcode = result.product?.barcode
+                                matches = result.foods
+                            }
+                        }
+                        Section {
+                            if let correctedQuery {
+                                Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            FoodFilterTags(market: $market, origin: $foodOrigin, favoritesOnly: $favoritesOnly, copy: copy)
+                            if isSearching {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                                    .accessibilityLabel(copy.text("search"))
+                            }
+                            ForEach(searchResults.prefix(resultLimit)) { result in
+                                Group {
+                                    if let food = result.food {
+                                        Button { select(food) } label: {
+                                            HStack(spacing: 12) {
+                                                VStack(alignment: .leading) {
+                                                    FoodPersonalizedName(food: food, model: model, copy: copy)
+                                                    Text(sourceLabel(food)).font(.caption)
+                                                    Text(food.salesCountries.map { $0 == "SE" ? "🇸🇪 SE" : $0 == "DE" ? "🇩🇪 DE" : $0 }.joined(separator: " · ")).font(.caption)
+                                                    if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
+                                                        ApproximateNutritionBadge(copy: copy)
+                                                    }
+                                                }
+                                                Spacer()
+                                                if selected?.id == food.id {
+                                                    Image(systemName: "checkmark.circle.fill")
+                                                        .foregroundStyle(.teal)
+                                                        .accessibilityLabel(copy.text("selected"))
+                                                }
+                                            }
+                                        }
+                                        .accessibilityAddTraits(selected?.id == food.id ? .isSelected : [])
+                                    } else if let entry = result.nameEntry {
+                                        Button { Task { await selectOFF(entry) } } label: {
+                                            VStack(alignment: .leading) {
+                                                OFFNameEntryLabel(entry: entry, copy: copy)
+                                                HStack {
+                                                    FoodOriginBadge(origin: .openFoodFacts, copy: copy)
+                                                    UnsyncedBadge(copy: copy)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                .id(result.id)
+                            }
+                            if matches.count + offNameMatches.count > resultLimit {
+                                Button(copy.text("showMore")) {
+                                    resultLimit += 20
+                                }
+                            }
+                            if !busy,
+                               !isSearching,
+                               matches.isEmpty,
+                               offNameMatches.isEmpty,
+                               (showingBarcodeResults || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !market.isEmpty || foodOrigin != .all || favoritesOnly) {
+                                Text(copy.text("noSearchResults"))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if selected == nil, let product {
+                            Section {
+                                Text(copy.text("unsupported"))
+                                Text(product.attribution).font(.caption)
+                            }
+                        }
+
+                        Color.clear
+                            .frame(height: searchResults.isEmpty ? 64 : max(64, geometry.size.height - 100))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .accessibilityHidden(true)
+                    }
+                    .navigationTitle(copy.text("add"))
+                    .searchable(text: $query, prompt: copy.text("search"))
+                    .searchPresentationToolbarBehavior(.avoidHidingContent)
+                    .onChange(of: selected) { _, _ in updateQuantityUnitForSelectedFood(); persist() }
+                    .onChange(of: product?.barcode) { _, _ in persist() }
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(copy.text("cancel")) {
+                                dismissSearch()
+                                cancel()
+                            }
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(copy.text("save")) {
+                                dismissSearch()
+                                save()
+                            }
+                            .disabled(components.isEmpty || !invalidComponents.isEmpty)
+                            .accessibilityIdentifier("meal.save")
+                        }
+                    }
+                    .onAppear { recover() }
+                    .task(id: "\(foodOrigin.rawValue)|\(market)|\(favoritesOnly)|\(model.favoriteRevision)|\(query)|\(resultLimit)") {
+                        await search()
+                    }
+                    .onChange(of: showingUnsupportedProduct) { _, showing in
+                        guard showing else { return }
+                        error = copy.text("unsupported")
+                        purgeUnsupportedProduct()
+                        showingUnsupportedProduct = false
+                    }
+                    .sheet(isPresented: $savingReusableMeal) {
+                        SavedMealMetadataSheet(model: model, copy: copy, ingredients: components)
+                    }
+                    .sheet(isPresented: $presentingFoodAmount) {
+                        if let selected {
+                            MealFoodAmountSheet(
+                                food: selected,
+                                foodName: model.name(selected, language: copy.language.rawValue),
+                                amount: $grams,
+                                unit: $quantityUnit,
+                                availableUnits: availableQuantityUnits(for: selected),
                                 copy: copy,
-                                celebrateLebkuchen: gingerbreadComponentID == component.id,
-                                remove: {
-                                    invalidComponents.remove(component.id)
-                                    componentInputs.removeValue(forKey: component.id)
-                                    components.removeAll { $0.id == component.id }
-                                    persist()
+                                error: $error,
+                                add: {
+                                    if await add(selected) {
+                                        presentingFoodAmount = false
+                                    }
                                 }
                             )
                         }
-                        LabeledContent(copy.text("mealTotalEnergy")) {
-                            Text("\(copy.kilocalories(accumulatedKilocalories)) kcal")
-                                .fontWeight(.semibold)
-                        }
-                        Button(copy.text("saveAsMeal")) { savingReusableMeal = true }
                     }
-                }
-                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    BarcodeFoodSearchSection(model: model, copy: copy) { result in
-                        showingBarcodeResults = true
-                        searchID = UUID()
-                        isSearching = false
-                        offNameMatches = []
-                        resultLimit = 20
-                        selected = nil
-                        product = result.product
-                        selectedProvenance = result.product?.provenance
-                        pendingOFFBarcode = result.product?.barcode
-                        matches = result.foods
-                    }
-                }
-                Section(copy.text("tags")) {
-                    if let correctedQuery {
-                        Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    FoodFilterTags(market: $market, origin: $foodOrigin, favoritesOnly: $favoritesOnly, copy: copy)
-                    if isSearching {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .accessibilityLabel(copy.text("search"))
-                    }
-                    ForEach(searchResults.prefix(resultLimit)) { result in
-                        if let food = result.food {
-                            Button { select(food) } label: {
-                                HStack(spacing: 12) {
-                                    VStack(alignment: .leading) {
-                                        FoodPersonalizedName(food: food, model: model, copy: copy)
-                                        Text(sourceLabel(food)).font(.caption)
-                                        Text(food.salesCountries.map { $0 == "SE" ? "🇸🇪 SE" : $0 == "DE" ? "🇩🇪 DE" : $0 }.joined(separator: " · ")).font(.caption)
-                                        if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
-                                            ApproximateNutritionBadge(copy: copy)
-                                        }
-                                    }
-                                    Spacer()
-                                    if selected?.id == food.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.teal)
-                                            .accessibilityLabel(copy.text("selected"))
-                                    }
-                                }
-                            }
-                            .accessibilityAddTraits(selected?.id == food.id ? .isSelected : [])
-                        } else if let entry = result.nameEntry {
-                            Button { Task { await selectOFF(entry) } } label: {
-                                VStack(alignment: .leading) {
-                                    OFFNameEntryLabel(entry: entry, copy: copy)
-                                    HStack {
-                                        FoodOriginBadge(origin: .openFoodFacts, copy: copy)
-                                        UnsyncedBadge(copy: copy)
-                                    }
-                                }
+                    .confirmationDialog(copy.text("futureConfirm"), isPresented: $confirmFuture, titleVisibility: .visible) { Button(copy.text("save")) { save(allowFuture: true) }; Button(copy.text("cancel"), role: .cancel) {} }
+                    .onChange(of: searchResults.map(\.id)) { _, _ in
+                        guard !searchResults.isEmpty else { return }
+                        Task { @MainActor in
+                            await Task.yield()
+                            if let first = searchResults.first {
+                                scroll.scrollTo(first.id, anchor: .top)
                             }
                         }
                     }
-                    if matches.count + offNameMatches.count > resultLimit {
-                        Button(copy.text("showMore")) {
-                            resultLimit += 20
+                    .onChange(of: presentingFoodAmount) { _, presented in
+                        guard !presented, !searchResults.isEmpty else { return }
+                        Task { @MainActor in
+                            await Task.yield()
+                            if let first = searchResults.first {
+                                scroll.scrollTo(first.id, anchor: .top)
+                            }
                         }
                     }
-                    if !busy,
-                       !isSearching,
-                       matches.isEmpty,
-                       offNameMatches.isEmpty,
-                       (showingBarcodeResults || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !market.isEmpty || foodOrigin != .all || favoritesOnly) {
-                        Text(copy.text("noSearchResults"))
-                            .foregroundStyle(.secondary)
-                    }
                 }
-                if selected == nil, let product {
-                    Section {
-                        Text(copy.text("unsupported"))
-                        Text(product.attribution).font(.caption)
-                    }
-                }
-                if let error { Text(error).foregroundStyle(.red).accessibilityIdentifier("meal.error") }
-                Color.clear
-                    .frame(height: 64)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .accessibilityHidden(true)
             }
-                .navigationTitle(copy.text("add"))
-                .searchable(text: $query, prompt: copy.text("search"))
-                .searchPresentationToolbarBehavior(.avoidHidingContent)
-                .onChange(of: selected) { _, _ in updateQuantityUnitForSelectedFood(); persist() }
-                .onChange(of: product?.barcode) { _, _ in persist() }
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(copy.text("cancel")) {
-                            dismissSearch()
-                            cancel()
-                        }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(copy.text("save")) {
-                            dismissSearch()
-                            save()
-                        }
-                        .disabled(components.isEmpty || !invalidComponents.isEmpty)
-                        .accessibilityIdentifier("meal.save")
-                    }
-                }
-                .onAppear { recover() }
-                .task(id: "\(foodOrigin.rawValue)|\(market)|\(favoritesOnly)|\(model.favoriteRevision)|\(query)|\(resultLimit)") {
-                    await search()
-                }
-                .alert("Open Food Facts", isPresented: $showingUnsupportedProduct) {
-                    Button(copy.text("done"), role: .cancel) { purgeUnsupportedProduct() }
-                } message: {
-                    Text(copy.text("unsupported"))
-                }
-                .sheet(isPresented: $savingReusableMeal) {
-                    SavedMealMetadataSheet(model: model, copy: copy, ingredients: components)
-                }
-                .sheet(isPresented: $presentingFoodAmount) {
-                    if let selected {
-                        MealFoodAmountSheet(
-                            food: selected,
-                            foodName: model.name(selected, language: copy.language.rawValue),
-                            amount: $grams,
-                            unit: $quantityUnit,
-                            availableUnits: availableQuantityUnits(for: selected),
-                            copy: copy,
-                            error: $error,
-                            add: {
-                                if await add(selected) {
-                                    presentingFoodAmount = false
-                                }
-                            }
-                        )
-                    }
-                }
-                .confirmationDialog(copy.text("futureConfirm"), isPresented: $confirmFuture, titleVisibility: .visible) { Button(copy.text("save")) { save(allowFuture: true) }; Button(copy.text("cancel"), role: .cancel) {} }
         }
+        .temporaryErrorBanner(error)
     }
     func sourceLabel(_ food: CatalogueFood) -> String {
         switch food.id {
@@ -4464,6 +4556,8 @@ struct MealComposer: View {
         } catch { self.error = appError(error) }
     }
     func select(_ food: CatalogueFood) {
+        grams = "100"
+        quantityUnit = .grams
         model.recordFoodSelection(food, query: query, language: copy.language)
         selected = food
         product = model.offProducts.first(where: { $0.food?.id == food.id })
@@ -4532,37 +4626,21 @@ struct MealComposer: View {
         do { try model.diary.saveDraft(draft()) } catch { self.error = appError(error) }
     }
     func recover() {
+        guard !didInitialize else { return }
+        didInitialize = true
         do {
             if let duplicate {
                 eatenAt = selectedDate; category = duplicate.category; categoryManual = true
                 components = try duplicate.components.map { old in try MealComponent(food: old.food, generationID: old.generationID, displayName: old.displayName, language: old.language, quantity: old.quantity, fixtureOnly: old.fixtureOnly, provenance: old.provenance, evidence: old.evidence, overlayRevision: old.overlayRevision) }; return
             }
             if let editing { draftID = editing.id; expectedRevision = editing.revision; editingBaseline = editing; zoneID = editing.zoneID; eatenAt = editing.eatenAt; category = editing.category; categoryManual = editing.categoryMode == "manual"; components = editing.components; return }
-            // A new-meal flow may recover only a genuinely unsaved meal. Edit
-            // drafts point at a persisted revision and must never be reopened as
-            // a new meal, otherwise their stale revision prevents saving.
-            if let draft = try model.diary.drafts().first(where: { $0.expectedEventRevision == nil }) {
-                draftID = draft.id; expectedRevision = draft.expectedEventRevision; zoneID = draft.zoneID; eatenAt = selectedDate; category = draft.category ?? suggestion(selectedDate); components = draft.components
-                if let data = draft.workingState {
-                    let state = try JSONDecoder().decode(ComposerWorkingState.self, from: data)
-                    categoryManual = state.categoryManual; grams = state.quantity; quantityUnit = state.unit; selected = state.selectedFood; componentInputs = state.componentInputs; pendingOFFBarcode = state.offBarcode; selectedProvenance = state.selectedProvenance
-                    let previousCopy = AppCopy(language: state.inputLanguage ?? copy.language)
-                    if previousCopy.language != copy.language {
-                        if let valid = previousCopy.canonicalQuantity(grams) { grams = valid.replacingOccurrences(of: ".", with: copy.language == .en ? "." : ",") }
-                        for (id, raw) in componentInputs { if let valid = previousCopy.canonicalQuantity(raw) { componentInputs[id] = valid.replacingOccurrences(of: ".", with: copy.language == .en ? "." : ",") } }
-                    }
-                    for (id, text) in componentInputs where copy.canonicalQuantity(text) == nil { invalidComponents.insert(id) }
-                    if let code = state.offBarcode { Task { do { let cached = try await model.off.cached(barcode: code); if cached?.food?.revision == selected?.revision { product = cached } } catch { self.error = appError(error) } } }
-                }
-            } else { eatenAt = selectedDate; category = suggestion(selectedDate) }
+            eatenAt = selectedDate
+            category = suggestion(selectedDate)
         } catch { self.error = appError(error) }
     }
     func cancel() {
-        if editing != nil || duplicate != nil {
-            do { try model.diary.deleteDraft(id: draftID) } catch { self.error = appError(error); return }
-        } else {
-            persist()
-        }
+        do { try model.diary.deleteDraft(id: draftID) }
+        catch { self.error = appError(error); return }
         dismiss()
     }
     func componentQuantity(_ component: MealComponent) -> Binding<String> {
@@ -4598,9 +4676,7 @@ struct MealComposer: View {
     private func draftForSave() throws -> MealDraft {
         let composerDraft = try draft()
         guard editing == nil, duplicate == nil,
-              let existing = model.events.last(where: {
-                  $0.category == category && $0.localDate == MealModel.day(eatenAt)
-              }) else { return composerDraft }
+              let existing = try model.diary.events(localDate: MealModel.day(eatenAt)).last(where: { $0.category == category }) else { return composerDraft }
         return MealDraft(
             id: existing.id,
             eatenAt: existing.eatenAt,
@@ -4677,9 +4753,6 @@ private struct CustomNutritionAdd: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                if let error {
-                    Text(error).foregroundStyle(.red)
-                }
             }
             .navigationTitle(copy.text("addCustomNutrition"))
             .onChange(of: energy) { _, _ in
@@ -4698,6 +4771,7 @@ private struct CustomNutritionAdd: View {
                 category = (try? DiaryTime.category(selectedDate, zoneID: TimeZone.current.identifier)) ?? .snack
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func macroBinding(_ value: Binding<String>, nutrient: Nutrient) -> Binding<String> {
@@ -4900,7 +4974,7 @@ private struct QuickFoodAdd: View {
                     }
                 }
 
-                Section(copy.text("tags")) {
+                Section {
                     TextField(copy.text("search"), text: $query)
                         .onChange(of: query) { _, _ in resultLimit = 20 }
                     if let correctedQuery {
@@ -4951,10 +5025,6 @@ private struct QuickFoodAdd: View {
                     }
                 }
 
-                if let error {
-                    Text(error)
-                        .foregroundStyle(.red)
-                }
             }
             .navigationTitle(copy.text("quickAdd"))
             .toolbar {
@@ -4962,10 +5032,11 @@ private struct QuickFoodAdd: View {
                     Button(copy.text("cancel")) { dismiss() }
                 }
             }
-            .alert("Open Food Facts", isPresented: $showingUnsupportedProduct) {
-                Button(copy.text("done"), role: .cancel) { purgeUnsupportedProduct() }
-            } message: {
-                Text(copy.text("unsupported"))
+            .onChange(of: showingUnsupportedProduct) { _, showing in
+                guard showing else { return }
+                error = copy.text("unsupported")
+                purgeUnsupportedProduct()
+                showingUnsupportedProduct = false
             }
             .onAppear {
                 category = (try? DiaryTime.category(selectedDate, zoneID: TimeZone.current.identifier)) ?? .snack
@@ -4991,6 +5062,7 @@ private struct QuickFoodAdd: View {
                 )
             }
         }
+        .temporaryErrorBanner(error)
     }
 
     private func search() async {
@@ -5058,6 +5130,8 @@ private struct QuickFoodAdd: View {
     }
 
     private func updateUnit(for food: CatalogueFood) {
+        amount = "100"
+        unit = .grams
         let units = availableQuantityUnits(for: food)
         if !units.contains(unit) {
             unit = units.first ?? .grams
@@ -5208,18 +5282,9 @@ private struct MealFoodAmountSheet: View {
                         .accessibilityIdentifier("meal.grams")
                 }
 
-                if let error {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("meal.addError")
-                }
-
                 Section(copy.text("calculatedNutrition")) {
                     if let preview {
                         MealNutritionPreview(totals: preview, copy: copy)
-                    } else {
-                        Text(copy.text("quantityError"))
-                            .foregroundStyle(.red)
                     }
                 }
             }
@@ -5251,6 +5316,7 @@ private struct MealFoodAmountSheet: View {
                 }
             }
         }
+        .temporaryErrorBanner(error ?? (preview == nil ? copy.text("quantityError") : nil))
         .interactiveDismissDisabled(isAdding)
     }
 }
@@ -5465,7 +5531,7 @@ private struct GoalCalendarView: View {
                 } else {
                     GoalFoodGraphs(events: monthEvents, month: displayedMonth, copy: copy)
                 }
-                if let error { Text(error).foregroundStyle(.red) }
+
             }
             .padding()
         }
@@ -5482,6 +5548,7 @@ private struct GoalCalendarView: View {
                 .map(\.date)
             await refreshActivity(loggedDates)
         }
+        .temporaryErrorBanner(error)
     }
 
     private var weekdaySymbols: [String] {
@@ -6058,7 +6125,7 @@ struct FoodDetail: View {
                     if value == nil || value?.status == .unknown { Text(copy.text("incomplete")).font(.caption) }
                 }
             }
-            if let error { Text(error).foregroundStyle(.red) }
+
         }.navigationTitle(copy.text("nutrition"))
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -6084,12 +6151,12 @@ struct FoodDetail: View {
                 }
             }
             .sheet(isPresented: $customizing, onDismiss: resolve) { FoodEditor(model: model, copy: copy, base: product?.food ?? food) }
+        .temporaryErrorBanner(error)
             .onAppear(perform: resolve)
     }
     func resolve() { do { model.foodPreferencesForDisplay(); var base = product?.food ?? food; if case let .personal(id) = base.id { base = try model.personal.personalFood(id: id).food }; resolved = try model.personal.resolve(base: base); model.effectiveNames[base.id] = resolved?.food.names; Task { await model.loadOFF() } } catch { self.error = appError(error) }
     }
 }
-
 
 struct MealHistory: View {
     @ObservedObject var model: MealModel
@@ -6111,8 +6178,9 @@ struct MealHistory: View {
                     ForEach(event.components) { component in Text(component.displayName + " · " + copy.number(component.quantity.amount.value) + " " + (component.quantity.unit == .millilitres ? "ml" : "g")) }
                 }
             }
-            if let error { Text(error).foregroundStyle(.red) }
+
         }.navigationTitle(copy.text("history"))
             .onAppear { do { revisions = try model.diary.history(id: id) } catch { self.error = appError(error) } }
+        .temporaryErrorBanner(error)
     }
 }

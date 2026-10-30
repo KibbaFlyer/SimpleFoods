@@ -94,7 +94,7 @@ struct RecipeImportView: View {
                     }
                     if rows.isEmpty { Text(copy.text("recipeNoIngredients")) }
                 }
-                if let error { Text(error).foregroundStyle(.red) }
+
             }
             .navigationTitle(copy.text("recipeImport"))
             .toolbar {
@@ -112,6 +112,7 @@ struct RecipeImportView: View {
                 }
             }
         }
+        .temporaryErrorBanner(error)
     }
     private func name(_ food: CatalogueFood) -> String { model.name(food, language: copy.language.rawValue) }
     private func selectedName(_ row: RecipeReviewRow) -> String { candidates.first { $0.id == row.foodID }.map { name($0.food) } ?? copy.text("recipeChoose") }
