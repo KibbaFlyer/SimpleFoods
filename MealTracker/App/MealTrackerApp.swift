@@ -1721,7 +1721,7 @@ private struct SavedMealCreator: View {
                 }
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func amountBinding(for ingredient: Binding<MealComponent>) -> Binding<String> {
@@ -1917,7 +1917,7 @@ private struct SavedMealMetadataSheet: View {
                 }
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func save() {
@@ -2057,7 +2057,7 @@ private struct SavedMealEditor: View {
                 }
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func amountBinding(for ingredient: Binding<MealComponent>) -> Binding<String> {
@@ -2199,7 +2199,7 @@ private struct RecipeFoodPicker: View {
                 await search()
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(copy.text("cancel")) { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button(copy.text("done")) { dismiss() } }
             }
             .onChange(of: showingUnsupportedProduct) { _, showing in
                 guard showing else { return }
@@ -2220,7 +2220,7 @@ private struct RecipeFoodPicker: View {
                 )
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func search() async {
@@ -2349,7 +2349,6 @@ private struct RecipeFoodPicker: View {
             )
             completion(component)
             amountSelection = nil
-            dismiss()
         } catch { self.error = appError(error, copy: copy) }
     }
 
@@ -2452,7 +2451,7 @@ private struct SavedMealLogSheet: View {
                 category = (try? DiaryTime.category(selectedDate, zoneID: TimeZone.current.identifier)) ?? .snack
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func add() {
@@ -4165,7 +4164,7 @@ private struct BarcodeFoodSearchSection: View {
 
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func lookup() async {
@@ -4222,6 +4221,7 @@ struct MealComposer: View {
     var duplicate: MealEvent? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dismissSearch) private var dismissSearch
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var eatenAt = Date()
     @State private var zoneID = TimeZone.current.identifier
     @State private var category = MealCategory.snack
@@ -4419,7 +4419,7 @@ struct MealComposer: View {
                                 dismissSearch()
                                 save()
                             }
-                            .disabled(components.isEmpty || !invalidComponents.isEmpty)
+                            .disabled(components.isEmpty)
                             .accessibilityIdentifier("meal.save")
                         }
                     }
@@ -4460,7 +4460,9 @@ struct MealComposer: View {
                         Task { @MainActor in
                             await Task.yield()
                             if let first = searchResults.first {
-                                scroll.scrollTo(first.id, anchor: .top)
+                                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+                                    scroll.scrollTo(first.id, anchor: .top)
+                                }
                             }
                         }
                     }
@@ -4469,14 +4471,16 @@ struct MealComposer: View {
                         Task { @MainActor in
                             await Task.yield()
                             if let first = searchResults.first {
-                                scroll.scrollTo(first.id, anchor: .top)
+                                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+                                    scroll.scrollTo(first.id, anchor: .top)
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
     func sourceLabel(_ food: CatalogueFood) -> String {
         switch food.id {
@@ -4646,12 +4650,21 @@ struct MealComposer: View {
     func componentQuantity(_ component: MealComponent) -> Binding<String> {
         Binding(get: { componentInputs[component.id] ?? component.quantity.amount.canonicalString.replacingOccurrences(of: ".", with: copy.language == .en ? "." : ",") }, set: { raw in
             componentInputs[component.id] = raw
-            guard let canonical = copy.canonicalQuantity(raw), let amount = try? DecimalAmount(canonical) else { invalidComponents.insert(component.id); error = copy.text("quantityError"); persist(); return }
+            guard let canonical = copy.canonicalQuantity(raw), let amount = try? DecimalAmount(canonical) else {
+                invalidComponents.insert(component.id)
+                error = raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : copy.text("quantityError")
+                persist()
+                return
+            }
             guard let index = components.firstIndex(where: { $0.id == component.id }) else { return }
             invalidComponents.remove(component.id); components[index].quantity.amount = amount; error = nil; persist()
         })
     }
     func save(allowFuture: Bool = false, retryingRevisionOnly: Bool = false) {
+        guard invalidComponents.isEmpty else {
+            error = copy.text("quantityError")
+            return
+        }
         persist()
         if eatenAt > Date(), !allowFuture { confirmFuture = true; return }
         do {
@@ -4771,7 +4784,7 @@ private struct CustomNutritionAdd: View {
                 category = (try? DiaryTime.category(selectedDate, zoneID: TimeZone.current.identifier)) ?? .snack
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func macroBinding(_ value: Binding<String>, nutrient: Nutrient) -> Binding<String> {
@@ -5062,7 +5075,7 @@ private struct QuickFoodAdd: View {
                 )
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private func search() async {
@@ -5237,6 +5250,7 @@ private struct MealComponentRow: View {
             Button(role: .destructive, action: remove) {
                 Image(systemName: "minus.circle")
             }
+            .buttonStyle(.borderless)
             .accessibilityLabel(copy.text("delete"))
         }
     }
@@ -5298,6 +5312,10 @@ private struct MealFoodAmountSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         guard !isAdding else { return }
+                        guard preview != nil else {
+                            error = copy.text("quantityError")
+                            return
+                        }
                         isAdding = true
                         error = nil
                         Task {
@@ -5312,11 +5330,11 @@ private struct MealFoodAmountSheet: View {
                             Text(copy.text("add"))
                         }
                     }
-                    .disabled(preview == nil || isAdding)
+                    .disabled(isAdding)
                 }
             }
         }
-        .temporaryErrorBanner(error ?? (preview == nil ? copy.text("quantityError") : nil))
+        .temporaryErrorBanner(error ?? (preview == nil && !amount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? copy.text("quantityError") : nil))
         .interactiveDismissDisabled(isAdding)
     }
 }
@@ -5548,7 +5566,7 @@ private struct GoalCalendarView: View {
                 .map(\.date)
             await refreshActivity(loggedDates)
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 
     private var weekdaySymbols: [String] {
@@ -6151,7 +6169,7 @@ struct FoodDetail: View {
                 }
             }
             .sheet(isPresented: $customizing, onDismiss: resolve) { FoodEditor(model: model, copy: copy, base: product?.food ?? food) }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
             .onAppear(perform: resolve)
     }
     func resolve() { do { model.foodPreferencesForDisplay(); var base = product?.food ?? food; if case let .personal(id) = base.id { base = try model.personal.personalFood(id: id).food }; resolved = try model.personal.resolve(base: base); model.effectiveNames[base.id] = resolved?.food.names; Task { await model.loadOFF() } } catch { self.error = appError(error) }
@@ -6181,6 +6199,6 @@ struct MealHistory: View {
 
         }.navigationTitle(copy.text("history"))
             .onAppear { do { revisions = try model.diary.history(id: id) } catch { self.error = appError(error) } }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
 }

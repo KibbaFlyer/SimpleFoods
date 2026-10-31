@@ -112,7 +112,7 @@ struct RecipeImportView: View {
                 }
             }
         }
-        .temporaryErrorBanner(error)
+        .temporaryErrorBanner($error)
     }
     private func name(_ food: CatalogueFood) -> String { model.name(food, language: copy.language.rawValue) }
     private func selectedName(_ row: RecipeReviewRow) -> String { candidates.first { $0.id == row.foodID }.map { name($0.food) } ?? copy.text("recipeChoose") }

@@ -44,15 +44,18 @@ import UIKit
 /// Reports from the view's own scene so errors also appear above presented sheets.
 struct ErrorBannerReporter: UIViewRepresentable {
     let message: String?
+    var onDismiss: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> ReporterView { ReporterView() }
     func updateUIView(_ view: ReporterView, context: Context) {
+        view.onDismiss = onDismiss
         view.message = message
         view.reportIfNeeded()
     }
 
     final class ReporterView: UIView {
         var message: String?
+        var onDismiss: (() -> Void)?
         private var reportedMessage: String?
 
         override func didMoveToWindow() {
@@ -64,7 +67,8 @@ struct ErrorBannerReporter: UIViewRepresentable {
             guard let message else { reportedMessage = nil; return }
             guard message != reportedMessage, let scene = window?.windowScene else { return }
             reportedMessage = message
-            Task { @MainActor in ErrorBannerPresenter.show(message, in: scene) }
+            let onDismiss = onDismiss
+            Task { @MainActor in ErrorBannerPresenter.show(message, in: scene, onDismiss: onDismiss) }
         }
     }
 }
@@ -108,6 +112,7 @@ private enum ErrorBannerPresenter {
         let message: String
         let shownAt: Date
         let dismissal: Task<Void, Never>
+        let onDismiss: (() -> Void)?
     }
     private static var presentations: [String: Presentation] = [:]
 
@@ -115,9 +120,10 @@ private enum ErrorBannerPresenter {
         guard let presentation = presentations.removeValue(forKey: key) else { return }
         presentation.dismissal.cancel()
         presentation.window.isHidden = true
+        presentation.onDismiss?()
     }
 
-    static func show(_ message: String, in scene: UIWindowScene) {
+    static func show(_ message: String, in scene: UIWindowScene, onDismiss: (() -> Void)?) {
         let key = scene.session.persistentIdentifier
         if let current = presentations[key], current.message == message,
            Date().timeIntervalSince(current.shownAt) < 0.5 { return }
@@ -152,11 +158,18 @@ private enum ErrorBannerPresenter {
             guard !Task.isCancelled else { return }
             dismiss(key)
         }
-        presentations[key] = Presentation(window: window, message: message, shownAt: Date(), dismissal: dismissal)
+        presentations[key] = Presentation(window: window, message: message, shownAt: Date(), dismissal: dismissal, onDismiss: onDismiss)
     }
 }
 
 extension View {
+    func temporaryErrorBanner(_ message: Binding<String?>) -> some View {
+        let displayedMessage = message.wrappedValue
+        return background(ErrorBannerReporter(message: displayedMessage, onDismiss: {
+            if message.wrappedValue == displayedMessage { message.wrappedValue = nil }
+        }).frame(width: 0, height: 0))
+    }
+
     func temporaryErrorBanner(_ message: String?) -> some View {
         background(ErrorBannerReporter(message: message).frame(width: 0, height: 0))
     }
