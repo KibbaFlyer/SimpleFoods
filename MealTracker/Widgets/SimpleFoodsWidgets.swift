@@ -93,6 +93,103 @@ private struct EnergyWidgetView: View {
     }
 }
 
+private struct GoalAndMacrosWidgetView: View {
+    let entry: FoodEntry
+
+    var body: some View {
+        if let snapshot = entry.snapshot {
+            let day = snapshot.day(at: entry.date)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Today's energy").font(.headline)
+                    Spacer(minLength: 4)
+                    Text(entry.date, format: .dateTime.day().month(.abbreviated))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                WidgetEnergyGoalBar(day: day, goal: snapshot.goal(for: day))
+                HStack(spacing: 12) {
+                    WidgetMacroRing(day: day)
+                        .frame(width: 72, height: 72)
+                    VStack(spacing: 4) {
+                        macroRow("Protein", amount: day.protein, color: .green)
+                        macroRow("Carbohydrates", amount: day.carbohydrate, color: .blue)
+                        macroRow("Fat", amount: day.fat, color: .orange)
+                    }
+                }
+            }
+            .privacySensitive()
+        } else {
+            WidgetEmpty()
+        }
+    }
+
+    private func macroRow(_ title: LocalizedStringKey, amount: Double, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7).accessibilityHidden(true)
+            Text(title)
+            Spacer(minLength: 2)
+            Text("\(amount, format: .number.precision(.fractionLength(0))) g")
+                .monospacedDigit()
+        }
+        .font(.caption)
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct WidgetEnergyGoalBar: View {
+    let day: WidgetDay
+    let goal: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Capsule().fill(.gray.opacity(0.18))
+                LinearGradient(colors: [.gray.opacity(0.65), .green.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: geometry.size.width)
+                    .frame(width: geometry.size.width * min(max(day.energy / goal, 0), 1), alignment: .leading)
+                    .clipped()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("\(day.energy, format: .number.precision(.fractionLength(0))) / \(goal, format: .number.precision(.fractionLength(0))) kcal")
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(.horizontal, 8)
+            }
+            .clipShape(Capsule())
+        }
+        .frame(height: 28)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Energy")
+    }
+}
+
+private struct WidgetMacroRing: View {
+    let day: WidgetDay
+
+    var body: some View {
+        if day.protein + day.carbohydrate + day.fat > 0 {
+            // Match the Today chart's composition by grams, not energy percentages.
+            Chart {
+                SectorMark(angle: .value("g", day.protein), innerRadius: .ratio(0.55), angularInset: 1.5)
+                    .foregroundStyle(.green)
+                SectorMark(angle: .value("g", day.carbohydrate), innerRadius: .ratio(0.55), angularInset: 1.5)
+                    .foregroundStyle(.blue)
+                SectorMark(angle: .value("g", day.fat), innerRadius: .ratio(0.55), angularInset: 1.5)
+                    .foregroundStyle(.orange)
+            }
+            .chartLegend(.hidden)
+            .accessibilityHidden(true)
+        } else {
+            Circle()
+                .strokeBorder(.secondary.opacity(0.2), lineWidth: 16)
+                .overlay { Image(systemName: "fork.knife").foregroundStyle(.secondary) }
+                .accessibilityLabel("No meals logged yet.")
+        }
+    }
+}
+
 private struct GoalsWidgetView: View {
     let entry: FoodEntry
     @Environment(\.widgetFamily) private var family
@@ -260,6 +357,20 @@ struct EnergyTotalWidget: Widget {
     }
 }
 
+struct GoalAndMacrosWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "SimpleFoods.GoalAndMacros", provider: FoodProvider()) { entry in
+            GoalAndMacrosWidgetView(entry: entry)
+                .environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier))
+                .containerBackground(.background, for: .widget)
+                .widgetURL(FoodWidgetRoute.today.url)
+        }
+        .configurationDisplayName("Goal & macronutrients")
+        .description("Today's energy goal bar and macronutrient breakdown.")
+        .supportedFamilies([.systemMedium])
+    }
+}
+
 struct GoalsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "SimpleFoods.Goals", provider: FoodProvider()) { entry in
@@ -300,6 +411,7 @@ struct QuickAddWidget: Widget {
 struct SimpleFoodsWidgets: WidgetBundle {
     var body: some Widget {
         EnergyTotalWidget()
+        GoalAndMacrosWidget()
         GoalsWidget()
         QuickAddWidget()
         FoodGraphWidget(graph: .mealEnergy)

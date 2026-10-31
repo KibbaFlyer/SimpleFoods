@@ -2097,6 +2097,7 @@ private struct RecipeFoodPicker: View {
     var nutritionValues: RecipeNutritionValues? = nil
     let completion: (MealComponent) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
     @State private var market = ""
     @State private var origin = FoodOriginFilter.all
@@ -2128,99 +2129,125 @@ private struct RecipeFoodPicker: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if let nutritionValues {
-                    Section(copy.text("nutrition")) {
-                        RecipeNutritionSummary(values: nutritionValues, copy: copy)
-                    }
-                }
-                BarcodeFoodSearchSection(model: model, copy: copy) { result in
-                    if result.foods.count == 1, let food = result.foods.first {
-                        product = result.product
-                        select(food)
-                    } else {
-                        matches = result.foods
-                        offNameMatches = []
-                    }
-                }
+            GeometryReader { geometry in
+                ScrollViewReader { scroll in
+                    List {
+                        if let nutritionValues {
+                            Section(copy.text("nutrition")) {
+                                RecipeNutritionSummary(values: nutritionValues, copy: copy)
+                            }
+                        }
+                        BarcodeFoodSearchSection(model: model, copy: copy) { result in
+                            if result.foods.count == 1, let food = result.foods.first {
+                                product = result.product
+                                select(food)
+                            } else {
+                                matches = result.foods
+                                offNameMatches = []
+                            }
+                        }
 
-                Section {
-                    if let correctedQuery {
-                        Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    FoodFilterTags(market: $market, origin: $origin, favoritesOnly: $favoritesOnly, copy: copy)
+                        Section {
+                            if let correctedQuery {
+                                Text(copy.text("searchCorrection") + " “" + correctedQuery + "”")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            FoodFilterTags(market: $market, origin: $origin, favoritesOnly: $favoritesOnly, copy: copy)
 
-                    if isSearching {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .accessibilityLabel(copy.text("search"))
-                    }
-                }
+                            if isSearching {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                                    .accessibilityLabel(copy.text("search"))
+                            }
+                        }
 
-                ForEach(searchResults.prefix(20)) { result in
-                    if let food = result.food {
-                        Button { select(food) } label: {
-                            VStack(alignment: .leading) {
-                                FoodPersonalizedName(food: food, model: model, copy: copy)
-                                Text(sourceLabel(food)).font(.caption).foregroundStyle(.secondary)
-                                if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
-                                    ApproximateNutritionBadge(copy: copy)
+                        ForEach(searchResults.prefix(20)) { result in
+                            Group {
+                                if let food = result.food {
+                                    Button { select(food) } label: {
+                                        VStack(alignment: .leading) {
+                                            FoodPersonalizedName(food: food, model: model, copy: copy)
+                                            Text(sourceLabel(food)).font(.caption).foregroundStyle(.secondary)
+                                            if model.offProducts.first(where: { $0.food?.id == food.id })?.hasApproximateNutrition == true {
+                                                ApproximateNutritionBadge(copy: copy)
+                                            }
+                                        }
+                                    }
+                                } else if let entry = result.nameEntry {
+                                    Button { Task { await selectOFF(entry) } } label: {
+                                        VStack(alignment: .leading) {
+                                            OFFNameEntryLabel(entry: entry, copy: copy)
+                                            UnsyncedBadge(copy: copy)
+                                        }
+                                    }
                                 }
                             }
+                            .id(result.id)
                         }
-                    } else if let entry = result.nameEntry {
-                        Button { Task { await selectOFF(entry) } } label: {
-                            VStack(alignment: .leading) {
-                                OFFNameEntryLabel(entry: entry, copy: copy)
-                                UnsyncedBadge(copy: copy)
-                            }
+                        if !isSearching,
+                           matches.isEmpty,
+                           offNameMatches.isEmpty,
+                           (!query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !market.isEmpty || origin != .all || favoritesOnly) {
+                            ContentUnavailableView(copy.text("noSearchResults"), systemImage: "magnifyingglass")
                         }
+
+                        Color.clear
+                            .frame(height: searchResults.isEmpty ? 64 : max(64, geometry.size.height - 100))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .accessibilityHidden(true)
+                    }
+                    .navigationTitle(copy.text("addFood"))
+                    .searchable(text: $query, prompt: copy.text("search"))
+                    .searchPresentationToolbarBehavior(.avoidHidingContent)
+                    .task(id: "\(origin.rawValue)|\(market)|\(favoritesOnly)|\(model.favoriteRevision)|\(query)") {
+                        try? await Task.sleep(for: .milliseconds(120))
+                        guard !Task.isCancelled else { return }
+                        await search()
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) { Button(copy.text("done")) { dismiss() } }
+                    }
+                    .onChange(of: showingUnsupportedProduct) { _, showing in
+                        guard showing else { return }
+                        error = copy.text("unsupported")
+                        purgeUnsupportedProduct()
+                        showingUnsupportedProduct = false
+                    }
+                    .sheet(item: $amountSelection) { selection in
+                        MealFoodAmountSheet(
+                            food: selection.food,
+                            foodName: model.name(selection.food, language: copy.language.rawValue),
+                            amount: $amount,
+                            unit: $unit,
+                            availableUnits: availableQuantityUnits(for: selection.food),
+                            copy: copy,
+                            error: $error,
+                            add: { await add(selection.food) }
+                        )
+                    }
+                    .onChange(of: searchResults.map(\.id)) { _, _ in
+                        scrollToResults(scroll)
+                    }
+                    .onChange(of: amountSelection?.id) { _, selection in
+                        if selection == nil { scrollToResults(scroll) }
                     }
                 }
-                if !isSearching,
-                   matches.isEmpty,
-                   offNameMatches.isEmpty,
-                   (!query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !market.isEmpty || origin != .all || favoritesOnly) {
-                    ContentUnavailableView(copy.text("noSearchResults"), systemImage: "magnifyingglass")
-                }
-
-                Color.clear
-                    .frame(height: 64)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .accessibilityHidden(true)
-            }
-            .navigationTitle(copy.text("addFood"))
-            .searchable(text: $query, prompt: copy.text("search"))
-            .task(id: "\(origin.rawValue)|\(market)|\(favoritesOnly)|\(model.favoriteRevision)|\(query)") {
-                try? await Task.sleep(for: .milliseconds(120))
-                guard !Task.isCancelled else { return }
-                await search()
-            }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button(copy.text("done")) { dismiss() } }
-            }
-            .onChange(of: showingUnsupportedProduct) { _, showing in
-                guard showing else { return }
-                error = copy.text("unsupported")
-                purgeUnsupportedProduct()
-                showingUnsupportedProduct = false
-            }
-            .sheet(item: $amountSelection) { selection in
-                MealFoodAmountSheet(
-                    food: selection.food,
-                    foodName: model.name(selection.food, language: copy.language.rawValue),
-                    amount: $amount,
-                    unit: $unit,
-                    availableUnits: availableQuantityUnits(for: selection.food),
-                    copy: copy,
-                    error: $error,
-                    add: { await add(selection.food) }
-                )
             }
         }
         .temporaryErrorBanner($error)
+    }
+
+    private func scrollToResults(_ scroll: ScrollViewProxy) {
+        guard !searchResults.isEmpty else { return }
+        Task { @MainActor in
+            await Task.yield()
+            if let first = searchResults.first {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+                    scroll.scrollTo(first.id, anchor: .top)
+                }
+            }
+        }
     }
 
     private func search() async {
