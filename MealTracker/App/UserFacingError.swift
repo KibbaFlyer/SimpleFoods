@@ -37,3 +37,140 @@ func appError(_ error: Error, copy: AppCopy? = nil) -> String {
     if (error as NSError).domain == NSURLErrorDomain { return copy.text("networkError") }
     return copy.text("storageError")
 }
+
+import SwiftUI
+import UIKit
+
+/// Reports from the view's own scene so errors also appear above presented sheets.
+struct ErrorBannerReporter: UIViewRepresentable {
+    let message: String?
+    var onDismiss: (() -> Void)? = nil
+
+    func makeUIView(context: Context) -> ReporterView { ReporterView() }
+    func updateUIView(_ view: ReporterView, context: Context) {
+        view.onDismiss = onDismiss
+        view.message = message
+        view.reportIfNeeded()
+    }
+
+    final class ReporterView: UIView {
+        var message: String?
+        var onDismiss: (() -> Void)?
+        private var reportedMessage: String?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            reportIfNeeded()
+        }
+
+        func reportIfNeeded() {
+            guard let message else { reportedMessage = nil; return }
+            guard message != reportedMessage, let scene = window?.windowScene else { return }
+            reportedMessage = message
+            let onDismiss = onDismiss
+            Task { @MainActor in ErrorBannerPresenter.show(message, in: scene, onDismiss: onDismiss) }
+        }
+    }
+}
+
+private struct ErrorBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        Button(action: dismiss) {
+            Label(message, systemImage: "exclamationmark.circle.fill")
+                .font(.callout)
+                .foregroundStyle(Color.primary)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(.red.opacity(0.6)))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .shadow(radius: 6, y: 3)
+        .accessibilityAction(.escape, dismiss)
+    }
+}
+
+/// Only the banner receives touches; the rest of the app remains interactive.
+private final class ErrorBannerWindow: UIWindow {
+    weak var bannerView: UIView?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let bannerView,
+              bannerView.bounds.contains(bannerView.convert(point, from: self)) else { return nil }
+        return super.hitTest(point, with: event)
+    }
+}
+
+@MainActor
+private enum ErrorBannerPresenter {
+    private struct Presentation {
+        let window: UIWindow
+        let message: String
+        let shownAt: Date
+        let dismissal: Task<Void, Never>
+        let onDismiss: (() -> Void)?
+    }
+    private static var presentations: [String: Presentation] = [:]
+
+    private static func dismiss(_ key: String) {
+        guard let presentation = presentations.removeValue(forKey: key) else { return }
+        presentation.dismissal.cancel()
+        presentation.window.isHidden = true
+        presentation.onDismiss?()
+    }
+
+    static func show(_ message: String, in scene: UIWindowScene, onDismiss: (() -> Void)?) {
+        let key = scene.session.persistentIdentifier
+        if let current = presentations[key], current.message == message,
+           Date().timeIntervalSince(current.shownAt) < 0.5 { return }
+        presentations[key]?.dismissal.cancel()
+        presentations[key]?.window.isHidden = true
+        let window = ErrorBannerWindow(windowScene: scene)
+        window.windowLevel = .alert + 1
+        window.backgroundColor = .clear
+        let container = UIViewController()
+        container.view.backgroundColor = .clear
+        let controller = UIHostingController(rootView: ErrorBanner(message: message) {
+            dismiss(key)
+        })
+        controller.sizingOptions = .intrinsicContentSize
+        controller.view.backgroundColor = .clear
+        container.addChild(controller)
+        container.view.addSubview(controller.view)
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            controller.view.topAnchor.constraint(equalTo: container.view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            controller.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor, constant: 16),
+            controller.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor, constant: -16)
+        ])
+        controller.didMove(toParent: container)
+        window.bannerView = controller.view
+        window.rootViewController = container
+        // Showing without making this window key preserves the current keyboard focus.
+        window.isHidden = false
+        UIAccessibility.post(notification: .announcement, argument: message)
+        let dismissal = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            dismiss(key)
+        }
+        presentations[key] = Presentation(window: window, message: message, shownAt: Date(), dismissal: dismissal, onDismiss: onDismiss)
+    }
+}
+
+extension View {
+    func temporaryErrorBanner(_ message: Binding<String?>) -> some View {
+        let displayedMessage = message.wrappedValue
+        return background(ErrorBannerReporter(message: displayedMessage, onDismiss: {
+            if message.wrappedValue == displayedMessage { message.wrappedValue = nil }
+        }).frame(width: 0, height: 0))
+    }
+
+    func temporaryErrorBanner(_ message: String?) -> some View {
+        background(ErrorBannerReporter(message: message).frame(width: 0, height: 0))
+    }
+}

@@ -55,7 +55,7 @@ struct FoodEditor: View {
                     }
                 }
                 if base != nil, revision != nil { Button(copy.text("reset"), role: .destructive) { reset = true } }
-                if let error { Text(error).foregroundStyle(.red) }
+
             }.navigationTitle(copy.text(base == nil ? "createFood" : "customize"))
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button(copy.text("cancel")) { dismiss() } }
@@ -63,6 +63,7 @@ struct FoodEditor: View {
                 }.onAppear(perform: load)
                 .confirmationDialog(copy.text("reset"), isPresented: $reset, titleVisibility: .visible) { Button(copy.text("reset"), role: .destructive) { do { if let base, let revision { _ = try model.personal.resetOverlay(base: base, expectedRevision: revision, operationID: operationID) }; dismiss() } catch { self.error = appError(error, copy: copy) } } }
         }
+        .temporaryErrorBanner($error)
     }
     func load() {
         guard let base else { return }

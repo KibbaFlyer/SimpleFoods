@@ -10,6 +10,13 @@ struct HealthEnergySection: View {
             stateView(state, title: "activeEnergy")
             Text(copy.text("healthCoverage")).font(.caption).foregroundStyle(.secondary)
         }
+        .temporaryErrorBanner(errorMessage)
+    }
+    private var errorMessage: String? {
+        switch state {
+        case .error, .stale: copy.text("energyError")
+        default: nil
+        }
     }
     @ViewBuilder func stateView(_ state: EnergyReadState, title: String) -> some View {
         switch state {
@@ -17,8 +24,8 @@ struct HealthEnergySection: View {
         case .loading: HStack { Text(copy.text(title)); ProgressView() }
         case .noReadableData: Text(copy.text(title) + ": " + copy.text("noReadableEnergy"))
         case let .value(value): valueRow(value, title: title)
-        case .error: Text(copy.text(title) + ": " + copy.text("energyError"))
-        case let .stale(value, _): valueRow(value, title: title); Text(copy.text("energyStale")).foregroundStyle(.orange)
+        case .error: Text(copy.text(title) + ": " + copy.text("noReadableEnergy"))
+        case let .stale(value, _): valueRow(value, title: title)
         }
     }
     func valueRow(_ value: EnergyValue, title: String) -> some View {
