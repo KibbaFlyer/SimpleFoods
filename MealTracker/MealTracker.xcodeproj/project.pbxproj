@@ -27,7 +27,7 @@
 		F1000000000000000000000B /* App/WidgetSnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* App/WidgetSnapshotPublisher.swift */; };
 		F1000000000000000000000C /* Shared/WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* Shared/WidgetSnapshot.swift */; };
 		F1000000000000000000000D /* Widgets/SimpleFoodsWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* Widgets/SimpleFoodsWidgets.swift */; };
-		F1000000000000000000000E /* SimpleFoodsWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F10000000000000000000006 /* SimpleFoodsWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F1000000000000000000000E /* SimpleFoodsWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F10000000000000000000006 /* SimpleFoodsWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F1000000000000000000002C /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000002B /* Localizable.strings */; };
 /* End PBXBuildFile section */
 
@@ -42,15 +42,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		F10000000000000000000017 /* Embed App Extensions */ = {
+		F10000000000000000000017 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				F1000000000000000000000E /* SimpleFoodsWidgets.appex in Embed App Extensions */,
+				F1000000000000000000000E /* SimpleFoodsWidgets.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -158,7 +158,7 @@
 				000000000000000000000007 /* Sources */,
 				000000000000000000000008 /* Frameworks */,
 				000000000000000000000009 /* Resources */,
-				F10000000000000000000017 /* Embed App Extensions */,
+				F10000000000000000000017 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -202,7 +202,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2710;
+				LastUpgradeCheck = 2720;
 			};
 			buildConfigurationList = 00000000000000000000000A /* Build configuration list for PBXProject "MealTracker" */;
 			compatibilityVersion = "Xcode 14.0";
@@ -385,6 +385,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -416,7 +417,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.7.1;
+				MARKETING_VERSION = 1.8.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -453,7 +454,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.7.1;
+				MARKETING_VERSION = 1.8.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -469,6 +470,7 @@
 			baseConfigurationReference = 000000000000000000000193 /* Config/Shared.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Widgets/Widgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
@@ -483,7 +485,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.1;
+				MARKETING_VERSION = 1.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(SIMPLEFOODS_WIDGET_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -500,6 +502,7 @@
 			baseConfigurationReference = 000000000000000000000193 /* Config/Shared.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Widgets/Widgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
@@ -514,7 +517,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.1;
+				MARKETING_VERSION = 1.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(SIMPLEFOODS_WIDGET_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

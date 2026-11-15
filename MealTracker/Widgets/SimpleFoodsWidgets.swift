@@ -21,6 +21,20 @@ private struct FoodProvider: TimelineProvider {
     }
 }
 
+private struct WidgetBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [Color(red: 0.025, green: 0.055, blue: 0.035), Color(red: 0.095, green: 0.165, blue: 0.095)]
+                : [Color(red: 0.99, green: 0.98, blue: 0.90), Color(red: 0.84, green: 0.91, blue: 0.66)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
 private enum WidgetGraph: String {
     case mealEnergy, foodAmount, foodEnergy, protein, carbohydrate, fat, dailyMacros
     var title: LocalizedStringKey {
@@ -349,7 +363,10 @@ private struct QuickAddWidgetView: View {
 struct EnergyTotalWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "SimpleFoods.Energy", provider: FoodProvider()) { entry in
-            EnergyWidgetView(entry: entry).environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier)).containerBackground(.background, for: .widget).widgetURL(FoodWidgetRoute.today.url)
+            EnergyWidgetView(entry: entry)
+                .environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier))
+                .containerBackground(for: .widget) { WidgetBackground() }
+                .widgetURL(FoodWidgetRoute.today.url)
         }
         .configurationDisplayName("Energy total")
         .description("Today's logged kcal and remaining energy goal.")
@@ -362,7 +379,7 @@ struct GoalAndMacrosWidget: Widget {
         StaticConfiguration(kind: "SimpleFoods.GoalAndMacros", provider: FoodProvider()) { entry in
             GoalAndMacrosWidgetView(entry: entry)
                 .environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier))
-                .containerBackground(.background, for: .widget)
+                .containerBackground(for: .widget) { WidgetBackground() }
                 .widgetURL(FoodWidgetRoute.today.url)
         }
         .configurationDisplayName("Goal & macronutrients")
@@ -374,7 +391,10 @@ struct GoalAndMacrosWidget: Widget {
 struct GoalsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "SimpleFoods.Goals", provider: FoodProvider()) { entry in
-            GoalsWidgetView(entry: entry).environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier)).containerBackground(.background, for: .widget).widgetURL(FoodWidgetRoute.goals.url)
+            GoalsWidgetView(entry: entry)
+                .environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier))
+                .containerBackground(for: .widget) { WidgetBackground() }
+                .widgetURL(FoodWidgetRoute.goals.url)
         }
         .configurationDisplayName("Goals")
         .description("Daily energy and macro goals, with a monthly overview in the large widget.")
@@ -388,7 +408,10 @@ private struct FoodGraphWidget: Widget {
     init(graph: WidgetGraph) { self.graph = graph }
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "SimpleFoods.Graph." + graph.rawValue, provider: FoodProvider()) { entry in
-            GraphWidgetView(entry: entry, graph: graph).environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier)).containerBackground(.background, for: .widget).widgetURL(FoodWidgetRoute.graphs.url)
+            GraphWidgetView(entry: entry, graph: graph)
+                .environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier))
+                .containerBackground(for: .widget) { WidgetBackground() }
+                .widgetURL(FoodWidgetRoute.graphs.url)
         }
         .configurationDisplayName(graph.title)
         .description("This month's nutrition graph. Tap to open Graphs.")
@@ -399,7 +422,9 @@ private struct FoodGraphWidget: Widget {
 struct QuickAddWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "SimpleFoods.QuickAdd", provider: FoodProvider()) { entry in
-            QuickAddWidgetView().environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier)).containerBackground(.background, for: .widget)
+            QuickAddWidgetView()
+                .environment(\.locale, Locale(identifier: entry.snapshot?.language ?? Locale.current.identifier))
+                .containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName("Quick add")
         .description("Open Today to add a meal, food, manual nutrition, or recipe.")

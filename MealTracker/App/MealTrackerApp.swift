@@ -287,6 +287,14 @@ struct MealTrackerApp: App {
         }
     }
 
+    /// Writes the most recent app state before suspension, when a debounced
+    /// publication may not otherwise get a chance to run.
+    func flushWidgetSnapshot() {
+        widgetPublishTask?.cancel()
+        widgetPublishTask = nil
+        publishWidgetSnapshot()
+    }
+
     @Published var events: [MealEvent] = []
     @Published private var eventsByDay: [String: [MealEvent]] = [:]
     @Published var savedMeals: [SavedMeal] = []
@@ -1031,7 +1039,10 @@ struct MealShell: View {
             confettiRunID = nil
         }
         .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
+            guard scenePhase == .active else {
+                model.flushWidgetSnapshot()
+                return
+            }
             model.reload(date)
             if !model.healthConnected {
                 await model.restoreHealthConnection(day: date)
