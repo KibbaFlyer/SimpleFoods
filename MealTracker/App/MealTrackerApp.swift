@@ -436,7 +436,14 @@ struct MealTrackerApp: App {
         calendar.timeZone = TimeZone(identifier: value.window.timeZoneID) ?? .current
         guard calendar.isDate(day, inSameDayAs: value.window.start) else { return }
         activeEnergyByDay[Self.day(day)] = value
-        scheduleWidgetSnapshot()
+        // The current day's activity directly changes the goal shown by the
+        // energy and goals widgets. Publish it while the app is foregrounded
+        // instead of waiting for the general-purpose debounce to expire.
+        if Calendar.autoupdatingCurrent.isDateInToday(day) {
+            flushWidgetSnapshot()
+        } else {
+            scheduleWidgetSnapshot()
+        }
     }
     func syncMealToHealth(_ event: MealEvent) async {
         guard healthConnected else { return }
