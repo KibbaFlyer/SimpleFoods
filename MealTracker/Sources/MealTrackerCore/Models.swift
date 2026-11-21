@@ -95,6 +95,12 @@ public struct Density: Codable, Equatable, Sendable {
     }
 }
 public struct Portion: Codable, Equatable, Sendable {
+    /// Well-known portion IDs the app offers as "piece", "package" and
+    /// "serving" units. Servings come from a source's declared serving size.
+    public static let pieceID = "piece"
+    public static let packageID = "package"
+    public static let servingID = "serving"
+
     public let id: String
     public let names: [String: String]?
     public let massGrams: DecimalAmount?

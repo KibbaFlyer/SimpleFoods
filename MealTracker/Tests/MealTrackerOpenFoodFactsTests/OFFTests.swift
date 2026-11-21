@@ -1,6 +1,7 @@
 import XCTest
 import GRDB
 @testable import MealTrackerOpenFoodFacts
+import MealTrackerCore
 
 private final class TestClock: @unchecked Sendable {
     private let lock = NSLock(); private var seconds: Double = 1000
@@ -68,11 +69,30 @@ final class OFFTests: XCTestCase {
         XCTAssertNotNil(product.food)
         XCTAssertEqual(product.food?.profile.preparation,"prepared")
     }
+    func testServingSizeBecomesServingPortion() async throws {
+        func serving(_ fields: String) -> Data {
+            Data(String(decoding: data(), as: UTF8.self).replacingOccurrences(of: "\"nutrition_data_per\"", with: fields + ",\"nutrition_data_per\"").utf8)
+        }
+        let (store,_) = try library(Server([.init(data:serving("\"serving_quantity\":45,\"serving_quantity_unit\":\"g\""))]))
+        let product = try await store.lookup(barcode:code)
+        let food = try XCTUnwrap(product.food)
+        let portion = try XCTUnwrap(food.profile.portions.first { $0.id == Portion.servingID })
+        XCTAssertEqual(portion.massGrams, try DecimalAmount("45")); XCTAssertNil(portion.volumeMillilitres)
+        // 2 servings × 45 g at 100 kcal/100 g.
+        let totals = try NutritionCalculator.calculate(profile: food.profile, quantity: .portions(id: Portion.servingID, count: DecimalAmount("2")))
+        XCTAssertEqual(totals[.energy].knownSubtotal, try DecimalAmount("90").value)
+
+        // A serving in another unit than the basis needs a density OFF lacks.
+        let (mismatched,_) = try library(Server([.init(data:serving("\"serving_quantity\":\"250\",\"serving_quantity_unit\":\"ml\""))]))
+        let otherProduct = try await mismatched.lookup(barcode:code)
+        let other = try XCTUnwrap(otherProduct.food)
+        XCTAssertTrue(other.profile.portions.isEmpty)
+    }
     func testPurgeRemovesCachedProduct() async throws {
         let (store,url) = try library(Server([.init(data:data(energyUnit:"kJ"))]))
         let entry = OFFNameEntry(barcode:code,names:["en":"Synthetic product"],markets:["SE"])
         let database = try DatabaseQueue(path:url.path)
-        try database.write {
+        try await database.write {
             try $0.execute(
                 sql:"INSERT OR REPLACE INTO off_name_index VALUES (?,?,?,?)",
                 arguments:[code,try JSONEncoder().encode(entry),"synthetic product","|SE|"]

@@ -267,3 +267,10 @@
 
 "macroGoalRange" = "Macronutrient goal range";
 "macroGoalRangeHelp" = "Protein, carbohydrates, and fat are green in Goals when their daily amounts are within this percentage of their respective targets; otherwise they are orange.";
+"piece" = "piece";
+"package" = "package";
+"portionSizes" = "Pieces and packages";
+"pieceSize" = "One piece";
+"packageSize" = "One package";
+"portionSizesHelp" = "Optional. Enter what one piece or package weighs to log this food by piece or package.";
+"serving" = "serving";

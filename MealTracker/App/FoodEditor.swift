@@ -3,6 +3,73 @@ import MealTrackerCore
 import MealTrackerDiary
 import MealTrackerLocalization
 
+/// A unit a food can be logged in: grams, millilitres, or one of the food's
+/// own portions (such as a piece or a package), which carry their own weight.
+struct FoodUnit: Hashable {
+    static let pieceID = Portion.pieceID
+    static let packageID = Portion.packageID
+    static let servingID = Portion.servingID
+    static let grams = FoodUnit(unit: .grams, portionID: nil)
+
+    let unit: QuantityUnit
+    let portionID: String?
+
+    init(unit: QuantityUnit, portionID: String?) {
+        self.unit = unit
+        self.portionID = unit == .portions ? portionID : nil
+    }
+
+    init(_ quantity: LoggedQuantity) {
+        self.init(unit: quantity.unit, portionID: quantity.portionID)
+    }
+
+    var isPortion: Bool { unit == .portions }
+
+    /// The amount a newly selected unit starts with: 100 g/ml, or 1 piece/package.
+    var defaultAmount: String { isPortion ? "1" : "100" }
+
+    func quantity(_ amount: DecimalAmount) -> LoggedQuantity {
+        LoggedQuantity(amount: amount, unit: unit, portionID: portionID)
+    }
+
+    /// Every unit the nutrition calculator can convert for this food.
+    static func available(for food: CatalogueFood) -> [FoodUnit] {
+        guard let one = try? DecimalAmount("1") else { return [] }
+        let candidates = [FoodUnit.grams, FoodUnit(unit: .millilitres, portionID: nil)]
+            + food.profile.portions.map { FoodUnit(unit: .portions, portionID: $0.id) }
+        return candidates.filter { candidate in
+            guard let consumed = try? candidate.quantity(one).consumed() else { return false }
+            return (try? NutritionCalculator.calculate(profile: food.profile, quantity: consumed)) != nil
+        }
+    }
+
+    func label(for food: CatalogueFood?, copy: AppCopy) -> String {
+        switch unit {
+        case .grams: return "g"
+        case .millilitres: return "ml"
+        case .portions:
+            switch portionID {
+            case Self.pieceID: return copy.text("piece")
+            case Self.packageID: return copy.text("package")
+            case Self.servingID: return copy.text("serving")
+            default:
+                let names = food?.profile.portions.first { $0.id == portionID }?.names
+                return names?[copy.language.rawValue] ?? names?["en"] ?? copy.text("portions")
+            }
+        }
+    }
+
+    /// The label for unit pickers: portions also say how much one of them is,
+    /// e.g. "serving (45 g)", so the user knows what they are choosing.
+    func pickerLabel(for food: CatalogueFood, copy: AppCopy) -> String {
+        let name = label(for: food, copy: copy)
+        guard isPortion, let portion = food.profile.portions.first(where: { $0.id == portionID }) else { return name }
+        if let grams = portion.massGrams { return name + " (" + copy.number(grams.value) + " g)" }
+        if let millilitres = portion.volumeMillilitres { return name + " (" + copy.number(millilitres.value) + " ml)" }
+        return name
+    }
+}
+
 /// Overrides replace one whole validated nutrition profile. Sync only updates the base.
 struct FoodEditor: View {
     @ObservedObject var model: MealModel
@@ -14,6 +81,9 @@ struct FoodEditor: View {
     @State private var kind = "ingredient"
     @State private var basis = "100"
     @State private var unit = BasisUnit.g
+    @State private var pieceSize = ""
+    @State private var packageSize = ""
+    @State private var portionsDirty = false
     @State private var values: [String: String] = [:]
     @State private var dirtyNutrients: Set<String> = []
     @State private var originalProfile: NutritionProfile?
@@ -39,6 +109,16 @@ struct FoodEditor: View {
                 Section(copy.text("basis")) {
                     TextField(copy.text("amount"), text: $basis).keyboardType(.decimalPad).disabled(base != nil)
                     Picker(copy.text("unit"), selection: $unit) { Text("g").tag(BasisUnit.g); Text("ml").tag(BasisUnit.ml); if originalProfile?.basis.unit == .definedPortion { Text(copy.text("definedPortion")).tag(BasisUnit.definedPortion) } }.disabled(base != nil)
+                }
+                if unit != .definedPortion {
+                    Section {
+                        portionSizeField("pieceSize", text: $pieceSize)
+                        portionSizeField("packageSize", text: $packageSize)
+                    } header: {
+                        Text(copy.text("portionSizes"))
+                    } footer: {
+                        Text(copy.text("portionSizesHelp"))
+                    }
                 }
                 Section(copy.text("nutrition")) {
                     Text(copy.text("blankUnknown")).font(.footnote)
@@ -75,9 +155,51 @@ struct FoodEditor: View {
             initialName = name
             originalProfile = food.profile; basis = localized(food.profile.basis.quantity); unit = food.profile.basis.unit
             for nutrient in Nutrient.allCases { values[nutrient.rawValue] = food.profile.nutrients[nutrient.rawValue]?.value.map(localized) ?? "" }
+            pieceSize = portionSize(FoodUnit.pieceID, in: food.profile)
+            packageSize = portionSize(FoodUnit.packageID, in: food.profile)
         } catch { self.error = appError(error, copy: copy) }
     }
     func localized(_ amount: DecimalAmount) -> String { amount.canonicalString.replacingOccurrences(of: ".", with: copy.language == .en ? "." : ",") }
+
+    private var basisUnitLabel: String { unit == .ml ? "ml" : "g" }
+
+    private func portionSizeField(_ key: String, text: Binding<String>) -> some View {
+        LabeledContent(copy.text(key) + " (" + basisUnitLabel + ")") {
+            TextField("—", text: Binding(get: { text.wrappedValue }, set: { text.wrappedValue = $0; portionsDirty = true }))
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func portionSize(_ id: String, in profile: NutritionProfile) -> String {
+        guard let portion = profile.portions.first(where: { $0.id == id }) else { return "" }
+        return (portion.massGrams ?? portion.volumeMillilitres).map(localized) ?? ""
+    }
+
+    /// Keeps portions from the source (and any defined-portion basis) and
+    /// replaces the piece/package portions with what the user entered. Sizes
+    /// are stored in the basis unit so no density conversion is needed.
+    private func editedPortions() throws -> [Portion]? {
+        let original = originalProfile?.portions ?? []
+        // A changed basis unit (g ↔ ml) also rebuilds the sizes in the new unit.
+        guard portionsDirty || unit != originalProfile?.basis.unit, unit != .definedPortion else { return original }
+        var portions = original.filter { $0.id != FoodUnit.pieceID && $0.id != FoodUnit.packageID }
+        for (id, raw) in [(FoodUnit.pieceID, pieceSize), (FoodUnit.packageID, packageSize)] {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard let canonical = copy.canonicalQuantity(trimmed) else { return nil }
+            let size = try DecimalAmount(canonical)
+            portions.append(try Portion(
+                id: id,
+                names: nil,
+                massGrams: unit == .ml ? nil : size,
+                volumeMillilitres: unit == .ml ? size : nil,
+                quality: .measured,
+                evidenceRef: "personal.user"
+            ))
+        }
+        return portions
+    }
 
     private var calculatedCarbohydrateTotal: String? {
         let carbohydrate = decimalValue(for: .carbohydrateAvailable)
@@ -126,10 +248,11 @@ struct FoodEditor: View {
                     else { nutrients[nutrient.rawValue] = try NutrientValue(status: amount.value == 0 ? .knownZero : .known, value: amount, unit: nutrient.unit) }
                 }
             }
+            guard let portions = try editedPortions() else { error = copy.text("quantityError"); return }
             let reference = originalProfile?.provenanceRef ?? "personal.user"
-            let profile = try NutritionProfile(profileRevision: profileRevision, basis: NutritionBasis(quantity: DecimalAmount(quantity), unit: unit, portionID: unit == .definedPortion ? originalProfile?.basis.portionID : nil), preparation: originalProfile?.preparation ?? "asEntered", density: originalProfile?.density, nutrients: nutrients, portions: originalProfile?.portions ?? [], provenanceRef: reference)
+            let profile = try NutritionProfile(profileRevision: profileRevision, basis: NutritionBasis(quantity: DecimalAmount(quantity), unit: unit, portionID: unit == .definedPortion ? originalProfile?.basis.portionID : nil), preparation: originalProfile?.preparation ?? "asEntered", density: originalProfile?.density, nutrients: nutrients, portions: portions, provenanceRef: reference)
             if let personalRecord { var names = personalRecord.food.names; names[copy.language.rawValue] = name; _ = try model.personal.savePersonal(id: personalRecord.id, kind: kind, names: names, authorLanguage: personalRecord.authorLanguage, profile: profile, expectedRevision: personalRecord.revision, operationID: operationID) }
-            else if let base { _ = try model.personal.saveOverlay(base: base, names: name == initialName ? [:] : [copy.language.rawValue: .set(name)], profile: dirtyNutrients.isEmpty ? .unchanged : .set(profile), expectedRevision: revision, operationID: operationID) }
+            else if let base { _ = try model.personal.saveOverlay(base: base, names: name == initialName ? [:] : [copy.language.rawValue: .set(name)], profile: dirtyNutrients.isEmpty && !portionsDirty ? .unchanged : .set(profile), expectedRevision: revision, operationID: operationID) }
             else { _ = try model.personal.savePersonal(id: newID, kind: kind, names: [copy.language.rawValue: name], authorLanguage: copy.language.rawValue, profile: profile, operationID: operationID) }
             dismiss()
         } catch { self.error = appError(error, copy: copy) }

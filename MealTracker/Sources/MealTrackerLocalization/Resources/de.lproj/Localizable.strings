@@ -267,3 +267,10 @@
 
 "macroGoalRange" = "Zielbereich für Makronährstoffe";
 "macroGoalRangeHelp" = "Protein, Kohlenhydrate und Fett werden unter Ziele grün angezeigt, wenn ihre Tagesmengen innerhalb dieses Prozentbereichs ihrer jeweiligen Ziele liegen; andernfalls orange.";
+"piece" = "Stück";
+"package" = "Packung";
+"portionSizes" = "Stück und Packungen";
+"pieceSize" = "Ein Stück";
+"packageSize" = "Eine Packung";
+"portionSizesHelp" = "Optional. Gib an, wie viel ein Stück oder eine Packung wiegt, um dieses Lebensmittel nach Stück oder Packung zu erfassen.";
+"serving" = "Portion";

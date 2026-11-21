@@ -317,7 +317,7 @@ public actor OFFLibrary {
         if let blockedUntil, now < blockedUntil { throw OFFError.rateLimited(blockedUntil) }
         try await db.write { try $0.execute(sql: "INSERT INTO off_current(code,attempt) VALUES (?,?) ON CONFLICT(code) DO UPDATE SET attempt=MAX(attempt,excluded.attempt)", arguments: [code, now.timeIntervalSince1970]) }
         var parts = URLComponents(string: "https://world.openfoodfacts.org/api/v3/product/\(code)")!
-        parts.queryItems = [URLQueryItem(name: "lc", value: ["sv","en","de"].contains(language) ? language : "en"), URLQueryItem(name: "fields", value: "code,product_name,product_name_sv,product_name_en,product_name_de,brands,nutrition,nutriments,nutrition_data_per,nutrition_data_prepared_per,product_quantity,product_quantity_unit,quantity,last_modified_t,rev,countries_tags,origins_tags,manufacturing_places_tags")]
+        parts.queryItems = [URLQueryItem(name: "lc", value: ["sv","en","de"].contains(language) ? language : "en"), URLQueryItem(name: "fields", value: "code,product_name,product_name_sv,product_name_en,product_name_de,brands,nutrition,nutriments,nutrition_data_per,nutrition_data_prepared_per,product_quantity,product_quantity_unit,quantity,serving_quantity,serving_quantity_unit,last_modified_t,rev,countries_tags,origins_tags,manufacturing_places_tags")]
         var request = URLRequest(url: parts.url!, cachePolicy: .reloadIgnoringLocalCacheData); request.httpMethod = "GET"; request.setValue(userAgent, forHTTPHeaderField: "User-Agent"); request.timeoutInterval = 30
         if let lastRequestAt {
             let wait = max(0, 4.1 - clock().timeIntervalSince(lastRequestAt))
@@ -426,10 +426,32 @@ public actor OFFLibrary {
                       let status = value["status"] as? String else { return false }
                 return status == "known" || status == "knownZero"
             }) else { continue }
-            let object: [String: Any] = ["id":["scope":"catalogue","namespace":"off","recordID":code], "revision":immutableRevision,"kind":"product","lifecycle":"active","names":names,"salesCountries":Self.countryCodes(p["countries_tags"] as? [String] ?? []), "manufacturingCountries":[], "ingredientOrigins":Self.countryCodes(p["origins_tags"] as? [String] ?? []), "barcodes":[code], "provenanceRef":ref,"profile":["profileRevision":immutableRevision,"basis":["quantity":"100","unit":candidate.basis == "100ml" ? "ml" : "g"],"preparation":candidate.preparation,"nutrients":nutrients,"portions":[],"provenanceRef":ref]]
+            let object: [String: Any] = ["id":["scope":"catalogue","namespace":"off","recordID":code], "revision":immutableRevision,"kind":"product","lifecycle":"active","names":names,"salesCountries":Self.countryCodes(p["countries_tags"] as? [String] ?? []), "manufacturingCountries":[], "ingredientOrigins":Self.countryCodes(p["origins_tags"] as? [String] ?? []), "barcodes":[code], "provenanceRef":ref,"profile":["profileRevision":immutableRevision,"basis":["quantity":"100","unit":candidate.basis == "100ml" ? "ml" : "g"],"preparation":candidate.preparation,"nutrients":nutrients,"portions":Self.servingPortion(p, basis: candidate.basis, evidenceRef: ref).map { [$0] } ?? [],"provenanceRef":ref]]
             return try JSONDecoder().decode(CatalogueFood.self, from: JSONSerialization.data(withJSONObject: object))
         }
         return nil
+    }
+
+    /// Maps the declared serving size to a "serving" portion so products can be
+    /// logged per serving. Only a serving in the basis unit is used; g↔ml would
+    /// need a density that Open Food Facts does not provide.
+    static func servingPortion(_ p: [String: Any], basis: String, evidenceRef: String) -> [String: Any]? {
+        let raw: String?
+        switch p["serving_quantity"] {
+        case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID(): raw = number.stringValue
+        case let text as String: raw = text.trimmingCharacters(in: .whitespaces)
+        default: raw = nil
+        }
+        guard let raw, let amount = try? DecimalAmount(raw), amount.value > 0 else { return nil }
+        // Older records omit the unit; Open Food Facts then means grams.
+        let unit = (p["serving_quantity_unit"] as? String)?.lowercased() ?? "g"
+        let size: String
+        switch (basis, unit) {
+        case ("100g", "g"): size = "massGrams"
+        case ("100ml", "ml"): size = "volumeMillilitres"
+        default: return nil
+        }
+        return ["id": Portion.servingID, size: amount.canonicalString, "quality": "measured", "evidenceRef": evidenceRef]
     }
 
     private static func supportedModifier(_ modifier: String?) -> Bool {

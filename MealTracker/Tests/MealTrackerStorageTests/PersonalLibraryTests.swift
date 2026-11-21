@@ -7,10 +7,17 @@ import MealTrackerDiary
 
 final class PersonalLibraryTests: XCTestCase {
     private func url() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("diary.sqlite") }
+    /// The bundled development pack ships empty, so the synthetic barcode food
+    /// (revision r1, then r2) comes from the shared core fixtures instead.
     private func sourceFoods() throws -> (CatalogueFood, CatalogueFood) {
-        let catalogue = try CatalogueRepository.bundledDevelopment()
-        let newest = try XCTUnwrap(catalogue.barcodeMatches("0000000000001").first)
-        return (try catalogue.retainedFood(id: newest.id, revision: "r1"), newest)
+        func food(_ version: Int) throws -> CatalogueFood {
+            let url = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("MealTrackerCoreTests/Fixtures/fixture-v\(version).json")
+            let fixture = try JSONDecoder().decode(CatalogueFixture.self, from: Data(contentsOf: url))
+            return try XCTUnwrap(fixture.foods.first { $0.barcodes.contains("0000000000001") })
+        }
+        return (try food(1), try food(2))
     }
     private func profile(_ original: NutritionProfile, basis: NutritionBasis? = nil) throws -> NutritionProfile {
         try NutritionProfile(profileRevision: "personal-1", basis: basis ?? original.basis, preparation: original.preparation, density: original.density, nutrients: ["protein": try NutrientValue(status: .known, value: DecimalAmount("42"), unit: .g)], portions: original.portions, provenanceRef: "user-authored")

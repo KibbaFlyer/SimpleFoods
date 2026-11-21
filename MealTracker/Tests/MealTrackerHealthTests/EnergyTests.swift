@@ -34,24 +34,34 @@ private struct FakeGateway:HealthEnergyGateway {
         try await reader.connect();try await reader.saveNutrition(entry)
         let saved=await state.saved;XCTAssertEqual(saved,[entry])
     }
+    // EnergyReader only reads active energy; resting energy feeds no app goal.
     func testNilIsNotZeroOrDenial() async throws {
         let state=FakeState(active:nil,resting:try EnergySample(kcal:0));let now=date("2026-10-11T10:00:00Z");let reader=EnergyReader(gateway:FakeGateway(state:state),clock:{now})
         try await reader.connect();await reader.refresh(day:now,timeZone:zone)
-        XCTAssertEqual(reader.active,.noReadableData);if case .value(let value)=reader.resting { XCTAssertEqual(value.kcal,0) } else { XCTFail() };XCTAssertNil(reader.total)
+        XCTAssertEqual(reader.active,.noReadableData);XCTAssertNil(reader.active.previousValue)
     }
-    func testTodaySoFarAndMatchingTotal() async throws {
+    func testRealZeroIsAValue() async throws {
+        let state=FakeState(active:try EnergySample(kcal:0));let now=date("2026-10-11T10:00:00Z");let reader=EnergyReader(gateway:FakeGateway(state:state),clock:{now})
+        try await reader.connect();await reader.refresh(day:now,timeZone:zone)
+        if case .value(let value)=reader.active { XCTAssertEqual(value.kcal,0) } else { XCTFail() }
+    }
+    func testTodaySoFarReadsOnlyActiveEnergy() async throws {
         let state=FakeState(active:try EnergySample(kcal:120),resting:try EnergySample(kcal:300));let now=date("2026-10-11T10:00:00Z");let reader=EnergyReader(gateway:FakeGateway(state:state),clock:{now})
         try await reader.connect();await reader.refresh(day:now,timeZone:zone)
-        XCTAssertEqual(reader.total?.kcal,420);XCTAssertEqual(reader.total?.window.end,now);XCTAssertEqual(reader.total?.window.isSoFar,true);XCTAssertEqual(reader.total?.coverage,.unknown)
+        let value=try XCTUnwrap(reader.active.previousValue)
+        XCTAssertEqual(value.kcal,120);XCTAssertEqual(value.window.end,now);XCTAssertEqual(value.window.isSoFar,true);XCTAssertEqual(value.coverage,.unknown)
+        let reads=await state.reads;XCTAssertEqual(reads,1)
     }
-    func testDifferentCoverageDoesNotProduceTotal() async throws {
-        let now=date("2026-10-11T10:00:00Z");let state=FakeState(active:try EnergySample(kcal:10,coverage:.complete),resting:try EnergySample(kcal:20,coverage:.truncated(start:now.addingTimeInterval(-10))))
-        let reader=EnergyReader(gateway:FakeGateway(state:state),clock:{now});try await reader.connect();await reader.refresh(day:now,timeZone:zone);XCTAssertNil(reader.total)
+    func testCoverageIsPreserved() async throws {
+        let now=date("2026-10-11T10:00:00Z");let truncated=EnergyCoverage.truncated(start:now.addingTimeInterval(-10))
+        let state=FakeState(active:try EnergySample(kcal:10,coverage:truncated))
+        let reader=EnergyReader(gateway:FakeGateway(state:state),clock:{now});try await reader.connect();await reader.refresh(day:now,timeZone:zone)
+        XCTAssertEqual(reader.active.previousValue?.coverage,truncated)
     }
     func testErrorKeepsStaleOriginalTimestamp() async throws {
         let now=date("2026-10-11T10:00:00Z");let state=FakeState(active:try EnergySample(kcal:10),resting:try EnergySample(kcal:20));let reader=EnergyReader(gateway:FakeGateway(state:state),clock:{now})
         try await reader.connect();await reader.refresh(day:now,timeZone:zone);await state.fail();await reader.refresh(day:now,timeZone:zone)
-        if case .stale(let previous,let error)=reader.active { XCTAssertEqual(previous.fetchedAt,now);XCTAssertEqual(previous.kcal,10);XCTAssertEqual(error,"readFailed") } else { XCTFail() };XCTAssertNil(reader.total)
+        if case .stale(let previous,let error)=reader.active { XCTAssertEqual(previous.fetchedAt,now);XCTAssertEqual(previous.kcal,10);XCTAssertEqual(error,"readFailed") } else { XCTFail() }
     }
     func testDifferentDayFailureDoesNotReusePreviousDay() async throws {
         let now=date("2026-10-11T10:00:00Z")
@@ -59,7 +69,7 @@ private struct FakeGateway:HealthEnergyGateway {
         let reader=EnergyReader(gateway:FakeGateway(state:state),clock:{now})
         try await reader.connect();await reader.refresh(day:now,timeZone:zone)
         await state.fail();await reader.refresh(day:date("2026-10-10T10:00:00Z"),timeZone:zone)
-        XCTAssertEqual(reader.active,.error("readFailed"));XCTAssertEqual(reader.resting,.error("readFailed"));XCTAssertNil(reader.total)
+        XCTAssertEqual(reader.active,.error("readFailed"))
     }
     func testDSTDaysUseCalendarNot86400() throws {
         let now=date("2027-01-01T12:00:00Z")

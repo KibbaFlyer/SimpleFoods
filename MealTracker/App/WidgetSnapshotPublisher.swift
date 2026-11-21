@@ -13,6 +13,12 @@ extension MealModel {
         func integer(_ key: String, default fallback: Int) -> Int {
             settings.object(forKey: key) == nil ? fallback : settings.integer(forKey: key)
         }
+        // Mirrors the @AppStorage defaults in MealShell: a setting the user has
+        // never toggled has no stored value, so `bool(forKey:)` alone would read
+        // `false` even though the app treats it as `true`.
+        func boolean(_ key: String, default fallback: Bool) -> Bool {
+            settings.object(forKey: key) == nil ? fallback : settings.bool(forKey: key)
+        }
         func number(_ value: Decimal) -> Double { NSDecimalNumber(decimal: value).doubleValue }
         var days: [WidgetDay] = []
         var mealEnergy: [String: Double] = [:]
@@ -60,7 +66,7 @@ extension MealModel {
                 proteinPercent: integer("proteinEnergyPercent", default: 25), carbohydratePercent: integer("carbohydrateEnergyPercent", default: 45), fatPercent: integer("fatEnergyPercent", default: 30),
                 energyMinimum: integer("goalRangeMinimumPercent", default: 90), energyMaximum: integer("goalRangeMaximumPercent", default: 110),
                 macroMinimum: integer("macroGoalRangeMinimumPercent", default: 90), macroMaximum: integer("macroGoalRangeMaximumPercent", default: 110),
-                includesActivity: settings.bool(forKey: "includeEnergyExpenditureInGoal"), days: days,
+                includesActivity: boolean("includeEnergyExpenditureInGoal", default: true), days: days,
                 mealEnergy: MealCategory.allCases.map { WidgetFoodTotal(id: $0.rawValue, name: $0.rawValue, value: mealEnergy[$0.rawValue] ?? 0, unit: "kcal") },
                 foodAmount: ranked(Array(amounts.values)), foodEnergy: nutrients(.energy), foodProtein: nutrients(.protein), foodCarbohydrate: nutrients(.carbohydrateAvailable), foodFat: nutrients(.totalFat)
             )

@@ -267,3 +267,10 @@
 
 "macroGoalRange" = "Målintervall för makronäringsämnen";
 "macroGoalRangeHelp" = "Protein, kolhydrater och fett visas gröna i Mål när dagens mängder ligger inom detta procentintervall av respektive mål; annars visas de orange.";
+"piece" = "st";
+"package" = "förpackning";
+"portionSizes" = "Styck och förpackningar";
+"pieceSize" = "En styck";
+"packageSize" = "En förpackning";
+"portionSizesHelp" = "Valfritt. Ange vad en styck eller förpackning väger för att kunna logga livsmedlet per styck eller förpackning.";
+"serving" = "portion";

@@ -1698,7 +1698,7 @@ private struct SavedMealCreator: View {
                                 .keyboardType(.decimalPad)
                                 .modifier(AmountKeyboardDone(title: copy.text("done")))
                                 .multilineTextAlignment(.trailing)
-                            Text(ingredient.quantity.unit == .millilitres ? "ml" : "g")
+                            Text(FoodUnit(ingredient.quantity).label(for: ingredient.food, copy: copy))
                         }
                     }
                     .onDelete { offsets in
@@ -2025,7 +2025,7 @@ private struct SavedMealEditor: View {
                                 .keyboardType(.decimalPad)
                                 .modifier(AmountKeyboardDone(title: copy.text("done")))
                                 .multilineTextAlignment(.trailing)
-                            Text(ingredient.quantity.unit == .millilitres ? "ml" : "g")
+                            Text(FoodUnit(ingredient.quantity).label(for: ingredient.food, copy: copy))
                         }
                     }
                     .onDelete { offsets in
@@ -2138,7 +2138,7 @@ private struct RecipeFoodPicker: View {
     @State private var product: OFFProduct?
     @State private var amountSelection: AmountSelection?
     @State private var amount = "100"
-    @State private var unit = QuantityUnit.grams
+    @State private var unit = FoodUnit.grams
     @State private var error: String?
     @State private var showingUnsupportedProduct = false
     @State private var unsupportedProductBarcode: String?
@@ -2325,7 +2325,7 @@ private struct RecipeFoodPicker: View {
             product = nil
         }
         let units = availableQuantityUnits(for: food)
-        if !units.contains(unit) { unit = units.first ?? .grams }
+        if !units.contains(unit) { unit = units.first ?? .grams; amount = unit.defaultAmount }
         amountSelection = AmountSelection(food: food)
     }
 
@@ -2343,14 +2343,8 @@ private struct RecipeFoodPicker: View {
         } catch { self.error = appError(error, copy: copy) }
     }
 
-    private func availableQuantityUnits(for food: CatalogueFood) -> [QuantityUnit] {
-        [QuantityUnit.grams, .millilitres].filter { quantityUnit in
-            guard let one = try? DecimalAmount("1") else { return false }
-            return (try? NutritionCalculator.calculate(
-                profile: food.profile,
-                quantity: LoggedQuantity(amount: one, unit: quantityUnit).consumed()
-            )) != nil
-        }
+    private func availableQuantityUnits(for food: CatalogueFood) -> [FoodUnit] {
+        FoodUnit.available(for: food)
     }
 
     private func purgeUnsupportedProduct() {
@@ -2386,7 +2380,7 @@ private struct RecipeFoodPicker: View {
                 generationID: model.catalogue.generationID,
                 displayName: model.name(resolution.food, language: copy.language.rawValue),
                 language: copy.language.rawValue,
-                quantity: LoggedQuantity(amount: try DecimalAmount(canonical), unit: unit),
+                quantity: unit.quantity(try DecimalAmount(canonical)),
                 fixtureOnly: !isOFF && !isSLV && { if case .personal = food.id { return false }; return model.catalogue.fixtureOnly }(),
                 provenance: isOFF ? (product?.provenance ?? [:]) : isSLV ? livsmedelsverketProvenance(for: food) : model.catalogue.provenance,
                 evidence: isOFF || isSLV ? [:] : model.catalogue.evidence,
@@ -3662,7 +3656,7 @@ private struct TodayMealComponentRow: View {
         VStack(alignment: .leading) {
             Text(component.displayName)
             HStack(spacing: 4) {
-                Text("\(copy.number(component.quantity.amount.value)) \(component.quantity.unit == .millilitres ? "ml" : "g")")
+                Text("\(copy.number(component.quantity.amount.value)) \(FoodUnit(component.quantity).label(for: component.food, copy: copy))")
                 if let kilocalories {
                     Text("· \(copy.kilocalories(kilocalories)) kcal")
                 }
@@ -4123,6 +4117,7 @@ private struct ComposerWorkingState: Codable {
     var offBarcode: String?
     var quantity: String
     var unit: QuantityUnit
+    var portionID: String?
     var categoryManual: Bool
     var componentInputs: [UUID: String]
     var selectedProvenance: [String: Provenance]?
@@ -4296,7 +4291,7 @@ struct MealComposer: View {
     @State private var selected: CatalogueFood?
     @State private var product: OFFProduct?
     @State private var grams = "100"
-    @State private var quantityUnit = QuantityUnit.grams
+    @State private var quantityUnit = FoodUnit.grams
     @State private var presentingFoodAmount = false
     @State private var components: [MealComponent] = []
     @State private var componentInputs: [UUID: String] = [:]
@@ -4629,18 +4624,15 @@ struct MealComposer: View {
             }
         }
     }
-    func availableQuantityUnits(for food: CatalogueFood) -> [QuantityUnit] {
-        [QuantityUnit.grams, .millilitres].filter { unit in
-            guard let amount = try? DecimalAmount("1") else { return false }
-            let quantity = LoggedQuantity(amount: amount, unit: unit)
-            return (try? NutritionCalculator.calculate(profile: food.profile, quantity: quantity.consumed())) != nil
-        }
+    func availableQuantityUnits(for food: CatalogueFood) -> [FoodUnit] {
+        FoodUnit.available(for: food)
     }
     func updateQuantityUnitForSelectedFood() {
         guard let selected else { return }
         let units = availableQuantityUnits(for: selected)
         if !units.contains(quantityUnit) {
             quantityUnit = units.first ?? .grams
+            grams = quantityUnit.defaultAmount
         }
     }
     @discardableResult
@@ -4656,7 +4648,7 @@ struct MealComposer: View {
             let isOFF: Bool = { if case let .catalogue(namespace, _) = food.id { return namespace == "off" }; return false }()
             let isSLV: Bool = { if case let .catalogue(namespace, _) = food.id { return namespace == "livsmedelsverket" }; return false }()
             if isOFF && selectedProvenance == nil && product == nil { error = copy.text("offMetadataMissing"); return false }
-            let quantity = LoggedQuantity(amount: try DecimalAmount(canonical), unit: quantityUnit)
+            let quantity = quantityUnit.quantity(try DecimalAmount(canonical))
             let provenance = isOFF ? (selectedProvenance ?? product?.provenance ?? [:]) : isSLV ? livsmedelsverketProvenance(for: food) : model.catalogue.provenance
             let component = try MealComponent(food: resolution.food, generationID: model.catalogue.generationID, displayName: model.catalogue.displayName(resolution.food, language: copy.language.rawValue), language: copy.language.rawValue, quantity: quantity, fixtureOnly: !isOFF && !isSLV && product == nil && model.catalogue.fixtureOnly && { if case .personal = food.id { return false }; return true }(), provenance: provenance, evidence: isOFF || isSLV ? [:] : model.catalogue.evidence, overlayRevision: resolution.overlayRevision)
             components.append(component)
@@ -4668,7 +4660,7 @@ struct MealComposer: View {
         } catch { self.error = appError(error); return false }
     }
     func draft() throws -> MealDraft {
-        let state = ComposerWorkingState(selectedFood: selected, offBarcode: product?.barcode ?? pendingOFFBarcode, quantity: grams, unit: quantityUnit, categoryManual: categoryManual, componentInputs: componentInputs, selectedProvenance: selectedProvenance, inputLanguage: copy.language)
+        let state = ComposerWorkingState(selectedFood: selected, offBarcode: product?.barcode ?? pendingOFFBarcode, quantity: grams, unit: quantityUnit.unit, portionID: quantityUnit.portionID, categoryManual: categoryManual, componentInputs: componentInputs, selectedProvenance: selectedProvenance, inputLanguage: copy.language)
         return MealDraft(id: draftID, eatenAt: eatenAt, zoneID: zoneID, category: categoryManual ? category : nil, components: components, workingState: try JSONEncoder().encode(state), expectedEventRevision: expectedRevision)
     }
     func persist() {
@@ -5015,7 +5007,7 @@ private struct QuickFoodAdd: View {
     @State private var activeSearchID = UUID()
     @State private var product: OFFProduct?
     @State private var amount = "100"
-    @State private var unit = QuantityUnit.grams
+    @State private var unit = FoodUnit.grams
     @State private var amountSelection: AmountSelection?
     @State private var error: String?
     @State private var showingUnsupportedProduct = false
@@ -5179,12 +5171,8 @@ private struct QuickFoodAdd: View {
         }
     }
 
-    private func availableQuantityUnits(for food: CatalogueFood) -> [QuantityUnit] {
-        [QuantityUnit.grams, .millilitres].filter { unit in
-            guard let amount = try? DecimalAmount("1") else { return false }
-            let quantity = LoggedQuantity(amount: amount, unit: unit)
-            return (try? NutritionCalculator.calculate(profile: food.profile, quantity: quantity.consumed())) != nil
-        }
+    private func availableQuantityUnits(for food: CatalogueFood) -> [FoodUnit] {
+        FoodUnit.available(for: food)
     }
 
     private func updateUnit(for food: CatalogueFood) {
@@ -5193,6 +5181,7 @@ private struct QuickFoodAdd: View {
         let units = availableQuantityUnits(for: food)
         if !units.contains(unit) {
             unit = units.first ?? .grams
+            amount = unit.defaultAmount
         }
     }
 
@@ -5230,7 +5219,7 @@ private struct QuickFoodAdd: View {
                 generationID: model.catalogue.generationID,
                 displayName: model.catalogue.displayName(resolution.food, language: copy.language.rawValue),
                 language: copy.language.rawValue,
-                quantity: LoggedQuantity(amount: decimalAmount, unit: unit),
+                quantity: unit.quantity(decimalAmount),
                 fixtureOnly: !isOFF && !isSLV && product == nil && model.catalogue.fixtureOnly && { if case .personal = food.id { return false }; return true }(),
                 provenance: isOFF ? (product?.provenance ?? [:]) : isSLV ? livsmedelsverketProvenance(for: food) : model.catalogue.provenance,
                 evidence: isOFF || isSLV ? [:] : model.catalogue.evidence,
@@ -5289,7 +5278,7 @@ private struct MealComponentRow: View {
                     .multilineTextAlignment(.trailing)
                     .frame(width: 72)
                     .accessibilityIdentifier("meal.component.grams")
-                Text(component.quantity.unit == .millilitres ? "ml" : "g")
+                Text(FoodUnit(component.quantity).label(for: component.food, copy: copy))
             }
             .fixedSize(horizontal: true, vertical: false)
             Button(role: .destructive, action: remove) {
@@ -5305,8 +5294,8 @@ private struct MealFoodAmountSheet: View {
     let food: CatalogueFood
     let foodName: String
     @Binding var amount: String
-    @Binding var unit: QuantityUnit
-    let availableUnits: [QuantityUnit]
+    @Binding var unit: FoodUnit
+    let availableUnits: [FoodUnit]
     let copy: AppCopy
     @Binding var error: String?
     let add: () async -> Void
@@ -5319,8 +5308,7 @@ private struct MealFoodAmountSheet: View {
               let decimalAmount = try? DecimalAmount(canonical) else {
             return nil
         }
-        let quantity = LoggedQuantity(amount: decimalAmount, unit: unit)
-        guard let consumed = try? quantity.consumed() else { return nil }
+        guard let consumed = try? unit.quantity(decimalAmount).consumed() else { return nil }
         return try? NutritionCalculator.calculate(profile: food.profile, quantity: consumed)
     }
 
@@ -5331,9 +5319,13 @@ private struct MealFoodAmountSheet: View {
                     Text(foodName)
                         .font(.headline)
                     Picker(copy.text("unit"), selection: $unit) {
-                        ForEach(availableUnits, id: \.rawValue) { unit in
-                            Text(unit == .grams ? "g" : "ml").tag(unit)
+                        ForEach(availableUnits, id: \.self) { unit in
+                            Text(unit.pickerLabel(for: food, copy: copy)).tag(unit)
                         }
+                    }
+                    .onChange(of: unit) { old, new in
+                        // "100" pieces is never intended; swap between sensible defaults.
+                        if amount == old.defaultAmount { amount = new.defaultAmount }
                     }
                     TextField(copy.text("amount"), text: $amount)
                         .keyboardType(.decimalPad)
@@ -6238,7 +6230,7 @@ struct MealHistory: View {
                     Text(event.localDate).font(.caption)
                     Text(copy.text(event.category.rawValue))
                     if event.deletedAt != nil { Text(copy.text("deleted")) }
-                    ForEach(event.components) { component in Text(component.displayName + " · " + copy.number(component.quantity.amount.value) + " " + (component.quantity.unit == .millilitres ? "ml" : "g")) }
+                    ForEach(event.components) { component in Text(component.displayName + " · " + copy.number(component.quantity.amount.value) + " " + FoodUnit(component.quantity).label(for: component.food, copy: copy)) }
                 }
             }
 
